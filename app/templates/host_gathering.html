@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<p><a href="/host">Back to host dashboard</a></p>
+<h1>{{ gathering.title }} — Host review</h1>
+<section class="card">
+<h2>Discussion themes</h2>
+<p>AI suggestions are drafts for human review and may be inaccurate. Check them against the original questions. Nothing is saved or published.</p>
+<form action="/host/gatherings/{{ gathering.id }}/themes" method="post">
+<button type="submit">Suggest Discussion Themes</button>
+</form>
+{% if error %}<p role="status">{{ error }}</p>{% endif %}
+{% if themes %}
+<h3>Draft suggestions — review required</h3>
+<ul>{% for theme in themes %}<li><strong>{{ theme.title }}</strong>
+<ul>{% for q in questions %}{% if q.id in theme.question_ids %}<li>Original question #{{ q.id }}: {{ q.question }}</li>{% endif %}{% endfor %}</ul>
+</li>{% endfor %}</ul>
+{% endif %}
+</section>
+<section class="card"><h2>Original questions</h2>
+{% if questions %}<ul>{% for q in questions %}<li>#{{ q.id }}: {{ q.question }}</li>{% endfor %}</ul>
+{% else %}<p>No questions yet.</p>{% endif %}
+</section>
+{% endblock %}

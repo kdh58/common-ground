@@ -16,8 +16,12 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.themes import ThemeError, suggest_themes
+
 ROOT = Path(__file__).parent
 DB = os.environ.get("DATABASE_PATH", "/tmp/common-ground.db")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
 if len(SESSION_SECRET) < 24:
@@ -155,3 +159,32 @@ def create_gathering(request: Request, title: str = Form(...), description: str 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+def host_gathering_page(id, request, generate=False):
+    require_admin(request)
+    gathering = get_gathering(id)
+    with connection() as db:
+        questions = [dict(r) for r in db.execute(
+            "SELECT id, question FROM questions WHERE gathering_id=? ORDER BY id", (id,))]
+    themes, error = [], ""
+    if generate:
+        if not questions:
+            error = "No questions yet. Add participant questions before suggesting themes. Ollama was not called."
+        else:
+            try:
+                themes = suggest_themes(questions, OLLAMA_BASE_URL, OLLAMA_MODEL)
+            except ThemeError as exc:
+                error = str(exc)
+    return render("host_gathering.html", request, gathering=gathering,
+                  questions=questions, themes=themes, error=error)
+
+
+@app.get("/host/gatherings/{id}", response_class=HTMLResponse)
+def host_gathering(id: int, request: Request):
+    return host_gathering_page(id, request)
+
+
+@app.post("/host/gatherings/{id}/themes", response_class=HTMLResponse)
+def gathering_themes(id: int, request: Request):
+    return host_gathering_page(id, request, generate=True)

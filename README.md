@@ -11,7 +11,7 @@ Independent, open-source prototype for neighborhood gathering coordination, buil
 - SQLite persistence in a named Docker volume
 - Mobile-friendly server-rendered UI, no frontend build step
 
-This release **does not yet contain AI features**. Those are a separate, testable milestone using Ollama, host review, and synthetic sample data.
+Authenticated hosts can request draft discussion themes for an individual gathering using Ollama. Original questions are preserved; suggestions are never saved or automatically published.
 
 ## Start in WSL + Docker Desktop
 
@@ -41,9 +41,13 @@ pytest -q
 
 **Local development only. Do not put this version on the public Internet.** It has deliberately minimal host authentication, no CSRF protection or rate limiting, and no participant notice/retention controls. It should use HTTPS-only cookies, robust authentication, spam protection, and a privacy/data deletion design before public deployment. Test only with fictional contributions, no sensitive information. The default demo gathering is fictional. No real community data should be submitted.
 
-## Planned next milestone
+## Ollama discussion themes
 
-Use locally served Ollama to suggest discussion themes based on synthetic questions. Hosts must review and approve output. Include a clear fallback when Ollama is unavailable, and measure latency/resource use. Do not treat AI summaries as authoritative.
+In `/host`, choose **Host review** beside a gathering, then **Suggest Discussion Themes**. Only that gathering's questions are sent to Ollama; no questions means no model call. Public pages cannot generate themes. Review each draft against its cited original questions: AI output may be inaccurate and is not evidence of participant consensus.
+
+`OLLAMA_BASE_URL` defaults to `http://host.docker.internal:11434`; `OLLAMA_MODEL` defaults to `qwen3:8b`. Both can be overridden in `.env` for Compose, or through environment variables when running Python directly. The endpoint must be reachable from the app's environment (a native Python process may need `http://localhost:11434`). Use an already running Ollama instance with the configured model installed. This app does not change WSL or Ollama service settings.
+
+Requests use structured JSON output, a 5-second connection timeout and a 45-second network-operation timeout. Connection/model errors, timeouts and invalid output show a retry message while preserving questions. Drafts exist only in the returned page; refreshing the host review page clears them. Tests mock Ollama and require no live model.
 
 ## Project layout
 
