@@ -63,10 +63,10 @@
       try {
         const base = new URL(doc.baseURI);
         const url = new URL(link.getAttribute('href'), base);
-        if (url.origin !== base.origin || !/^\/host\/gatherings\/\d+\/analyses\/\d+\/export\.html$/.test(url.pathname)) return;
+        if (url.origin !== base.origin || !/^\/host\/gatherings\/\d+\/analyses\/\d+\/(?:export|view)\.html$/.test(url.pathname)) return;
         if (zone.fallback) url.searchParams.delete('timezone');
         else url.searchParams.set('timezone', zone.timeZone);
-        // Only our same-origin download link is changed; no fetch or HTML insertion.
+        // Only our same-origin report link is changed; no fetch or HTML insertion.
         link.setAttribute('href', url.pathname + url.search);
       } catch {
         // Unenhanced links retain the labeled server timezone fallback.

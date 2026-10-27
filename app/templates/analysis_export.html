@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="{{ report_csp }}">
 <title>Common Ground — Analysis #{{ run.id }} — {{ gathering.title }}</title>
 <style>
 :root { font-family: system-ui, sans-serif; color: #193129; background: #f7f8f3; line-height: 1.6; }
@@ -15,7 +15,9 @@ h1 { font-size: clamp(1.7rem, 5vw, 2.5rem); }
 h2 { font-size: 1.5rem; }
 h3 { font-size: 1.15rem; margin-bottom: 8px; }
 a { color: #195c4c; text-underline-offset: .2em; }
-a:focus-visible { outline: 3px solid #193129; outline-offset: 3px; }
+button:focus-visible, a:focus-visible { outline: 3px solid #193129; outline-offset: 3px; }
+.report-toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.report-toolbar button, .report-toolbar a { font: inherit; color: #195c4c; background: #fff; border: 1px solid #607a6e; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
 .eyebrow { font-weight: 750; letter-spacing: .08em; }
 .notice { border: 2px solid #607a6e; padding: 16px; background: #e5eee6; }
 article, .coverage { background: #fff; border: 1px solid #607a6e; border-radius: 10px; padding: 24px; margin-block: 24px; }
@@ -41,6 +43,12 @@ li { margin-block: 10px; }
 </style>
 </head>
 <body>
+{% if inline %}
+<nav class="report-toolbar screen-only" aria-label="Analysis report actions">
+<button type="button" id="print-analysis">Print / Save PDF</button>
+<a href="{{ download_url }}" download>Download HTML</a>
+</nav>
+{% endif %}
 <header>
 <p class="eyebrow">COMMON GROUND · PRIVATE HOST WORKING DOCUMENT</p>
 <h1>{{ gathering.title }}</h1>
@@ -55,7 +63,7 @@ li { margin-block: 10px; }
 <dt>System timestamp timezone</dt><dd>{{ export_zone }}{% if timezone_fallback %} (prototype fallback; browser timezone unavailable or unsupported){% endif %}</dd>
 </dl>
 <p class="notice">AI content is suggested host working material, not findings, community decisions or evidence of community consensus. Facilitation notes are private and are not published theme descriptions. Review all suggestions against the cited contributions.</p>
-<p class="screen-only">This self-contained document has no scripts or external resources. Use your browser's Print command to print or save as PDF; keep the downloaded HTML file to retain this saved-value snapshot.</p>
+<p class="screen-only">This self-contained document has no external resources. Use your browser's Print command to print or save as PDF; keep the downloaded HTML file to retain this saved-value snapshot.</p>
 <p class="note">Includes every currently saved theme associated with this run, including archived drafts and approved/published themes. Unsaved browser edits are not included. Gathering schedule text is shown as entered, without timezone reinterpretation.</p>
 </header>
 {% for theme in themes %}
@@ -84,5 +92,6 @@ li { margin-block: 10px; }
 {% else %}<p>Coverage unavailable — {{ coverage_unavailable }}. Counts and uncited questions are not inferred from current submissions.</p>{% endif %}
 </section>
 <footer><p>Common Ground · Host-only analysis export · Saved content, not community consensus</p></footer>
+{% if inline %}<script>{{ print_script|safe }}</script>{% endif %}
 </body>
 </html>

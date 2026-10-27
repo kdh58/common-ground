@@ -94,7 +94,7 @@ def test_complete_export_all_statuses_archive_and_run_isolation(client, monkeypa
     assert response.status_code == 200
     assert response.headers['content-type'].startswith('text/html')
     assert response.headers['content-disposition'] == 'attachment; filename="gathering-1-analysis-1.html"'
-    assert response.headers['cache-control'] == 'no-store'
+    assert response.headers['cache-control'] == 'private, no-store'
     assert response.headers['x-content-type-options'] == 'nosniff'
     assert "default-src 'none'" in response.headers['content-security-policy']
     assert "script-src 'none'" in response.headers['content-security-policy']
@@ -135,7 +135,7 @@ def test_export_is_standalone_printable_and_contains_no_active_resources(client,
     assert not any('src' in attrs or 'srcset' in attrs for _, attrs in document.elements)
     assert all(attrs.get('href', '#').startswith('#') for _, attrs in document.elements)
     workspace = client.get('/host/gatherings/1?tab=themes').text
-    assert workspace.count('>Export Analysis</a>') == 2  # selected inactive + other active run
+    assert workspace.count('>View / Print Analysis</a>') == 2  # selected inactive + other active run
     assert 'data-analysis-export' in workspace
     assert 'Save theme edits and private notes before exporting' in workspace
 
@@ -182,7 +182,8 @@ def test_requested_model_is_recorded_per_run_not_inferred_from_current_configura
     assert 'qwen3:export-test' in client.get(url()).text
 
 
-def test_untrusted_export_fields_are_escaped_without_creating_active_markup(client, monkeypatch):
+@pytest.mark.parametrize('endpoint', ['export.html', 'view.html'])
+def test_untrusted_export_fields_are_escaped_without_creating_active_markup(client, monkeypatch, endpoint):
     setup_export(client, monkeypatch)
     with main.connection() as db:
         db.execute('UPDATE gatherings SET title=?,location=?,when_text=? WHERE id=1',
@@ -195,13 +196,16 @@ def test_untrusted_export_fields_are_escaped_without_creating_active_markup(clie
     assert save(client, item, shared_concerns='<script>NOTES</script>',
                 different_perspectives='<img src=x onerror=alert(1)>',
                 discussion_questions='<svg onload=alert(1)>PROMPT</svg>').status_code == 200
-    html = client.get(url()).text
+    html = client.get(url().replace("export.html", endpoint)).text
     document = Document(html)
-    assert not {tag for tag, _ in document.elements} & {'script', 'img', 'svg', 'iframe'}
+    assert not {tag for tag, _ in document.elements} & {'img', 'svg', 'iframe'}
     assert '<script>NOTES</script>' not in html and '&lt;script&gt;NOTES&lt;/script&gt;' in html
     decoded = ''.join(document.text)
     assert '<script>MODEL</script>' in decoded and '<svg onload=alert(1)>SOURCE</svg>' in decoded
     assert '<script>NOTES</script>' in decoded
+
+    scripts = re.findall(r"<script>(.*?)</script>", html)
+    assert scripts == ([main.PRINT_ANALYSIS_SCRIPT] if endpoint == "view.html" else [])
 
 
 def test_legacy_blank_notes_unknown_model_and_unavailable_coverage(client):
@@ -223,17 +227,18 @@ def test_legacy_blank_notes_unknown_model_and_unavailable_coverage(client):
     assert snapshot() == before
 
 
-def test_export_authentication_and_run_gathering_ownership(client, monkeypatch):
-    assert client.get(url()).status_code == 403
-    assert client.get(url(999, 999)).status_code == 403
+@pytest.mark.parametrize('endpoint', ['export.html', 'view.html'])
+def test_export_authentication_and_run_gathering_ownership(client, monkeypatch, endpoint):
+    assert client.get(url().replace("export.html", endpoint)).status_code == 403
+    assert client.get(url(999, 999).replace("export.html", endpoint)).status_code == 403
     setup_export(client, monkeypatch)
-    assert client.get(url(1, 2)).status_code == 404
-    assert client.get(url(3, 1)).status_code == 404
-    assert client.get(url(999)).status_code == 404
-    assert client.get(url(1, 999)).status_code == 404
+    assert client.get(url(1, 2).replace("export.html", endpoint)).status_code == 404
+    assert client.get(url(3, 1).replace("export.html", endpoint)).status_code == 404
+    assert client.get(url(999).replace("export.html", endpoint)).status_code == 404
+    assert client.get(url(1, 999).replace("export.html", endpoint)).status_code == 404
     assert client.get('/gatherings/1/analyses/1/export.html').status_code == 404
     post(client, '/host/logout')
-    assert client.get(url()).status_code == 403
+    assert client.get(url().replace("export.html", endpoint)).status_code == 403
 
 
 @pytest.mark.parametrize('zone,stamp,expected', [
@@ -277,3 +282,45 @@ def test_new_model_metadata_migration_preserves_existing_tables(client, monkeypa
     assert {table: after[table] for table in before} == before
     assert after['analysis_run_models'] == []
     assert 'Not recorded for this historical run' in client.get(url()).text
+
+
+def test_inline_report_toolbar_security_and_download(client, monkeypatch):
+    import base64
+    import hashlib
+    setup_export(client, monkeypatch)
+    response = client.get(url().replace('export.html', 'view.html'), params={'timezone': 'Asia/Tokyo'})
+    assert response.status_code == 200
+    assert response.headers['content-type'] == 'text/html; charset=utf-8'
+    assert response.headers['content-disposition'] == 'inline; filename="gathering-1-analysis-1.html"'
+    assert response.headers['cache-control'] == 'private, no-store'
+    assert response.headers['x-content-type-options'] == 'nosniff'
+    assert response.headers['x-frame-options'] == 'DENY'
+    assert response.headers['referrer-policy'] == 'no-referrer'
+    script, = re.findall(r'<script>(.*?)</script>', response.text)
+    digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
+    csp = response.headers['content-security-policy']
+    assert f"script-src 'sha256-{digest}'" in csp
+    for directive in ("default-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'"):
+        assert directive in csp
+    assert "script-src 'unsafe-inline'" not in csp
+    document = Document(response.text)
+    meta = next(attrs['content'] for tag, attrs in document.elements if tag == 'meta' and attrs.get('http-equiv') == 'Content-Security-Policy')
+    assert f"script-src 'sha256-{digest}'" in meta
+    assert ('button', {'type': 'button', 'id': 'print-analysis'}) in document.elements
+    toolbar = next(attrs for tag, attrs in document.elements if tag == 'nav')
+    assert 'screen-only' in toolbar['class'].split()
+    assert re.search(r'@media print.*?\.screen-only\s*{\s*display: none;', ''.join(document.styles), re.S)
+    download = next(attrs for tag, attrs in document.elements if tag == 'a' and 'download' in attrs)
+    assert download['href'] == url() + '?timezone=Asia%2FTokyo'
+    attachment = client.get(download['href'])
+    assert attachment.headers['content-disposition'].startswith('attachment;')
+    assert '<script' not in attachment.text
+    assert 'DRAFT TOPIC' in response.text and 'UNCITED INPUT' in response.text
+    workspace = Document(client.get('/host/gatherings/1?tab=themes').text)
+    links = [attrs for tag, attrs in workspace.elements if tag == 'a' and 'data-analysis-export' in attrs]
+    assert len(links) == 2
+    for link in links:
+        assert link['href'].endswith('/view.html')
+        assert link['target'] == '_blank'
+        assert set(link['rel'].split()) == {'noopener', 'noreferrer'}
+        assert 'download' not in link and 'onclick' not in link

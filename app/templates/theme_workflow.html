@@ -122,7 +122,7 @@
 <div class="analysis-content">
 {% if run.completed_at %}<p>Finished: {{ date(run.completed_at) }}</p>{% endif %}
 <div class="theme-actions analysis-actions">
-<a class="button" href="/host/gatherings/{{ gathering.id }}/analyses/{{ run.id }}/export.html" data-analysis-export download aria-label="Export Analysis #{{ run.id }}">Export Analysis</a>
+<a class="button" href="/host/gatherings/{{ gathering.id }}/analyses/{{ run.id }}/view.html" data-analysis-export target="_blank" rel="noopener noreferrer" aria-label="View / Print Analysis #{{ run.id }}">View / Print Analysis</a>
 <form action="/host/gatherings/{{ gathering.id }}/analyses/{{ run.id }}/{{ 'reactivate' if run.inactive else 'inactive' }}?tab=themes" method="post"{% if error_run == run.id %} aria-describedby="analysis-feedback-{{ run.id }}"{% endif %}>
 {{ csrf() }}<input type="hidden" name="action_key" value="{{ run.action_key }}">
 <button type="submit" class="secondary">{{ 'Reactivate' if run.inactive else 'Make inactive' }}</button>

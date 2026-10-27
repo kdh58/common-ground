@@ -506,8 +506,9 @@ Themes and public topic order continue to use the host's saved position/id order
 
 ## Private AI Analysis Export
 
-Each analysis accordion has **Export Analysis**, which downloads a self-contained,
-print-friendly HTML document. **Save theme edits and Save private notes before
+Each analysis accordion has **View / Print Analysis**, which opens a private report in a new tab.
+Use **Print / Save PDF** to print the report, or **Download HTML** to save a
+self-contained, print-friendly HTML document. **Save theme edits and Save private notes before
 exporting**: the download reads current saved database values, never unsaved form
 fields. Save private notes remains a separate persistence action.
 

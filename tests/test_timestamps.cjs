@@ -129,3 +129,30 @@ test('analysis download keeps server fallback and never rewrites external links'
   assert.equal(external.href, 'https://external.example/host/gatherings/1/analyses/2/export.html');
   assert.equal(other.href, '/gatherings/1');
 });
+
+
+test('view link timezone enhancement preserves native new-tab navigation', () => {
+  const { localizeAnalysisExportLinks } = require('../app/static/timestamps.js');
+  const attrs = { href: '/host/gatherings/1/analyses/2/view.html', target: '_blank', rel: 'noopener noreferrer' };
+  const link = { getAttribute: (key) => attrs[key], setAttribute(key, value) { assert.equal(key, 'href'); attrs[key] = value; } };
+  localizeAnalysisExportLinks({ baseURI: 'https://example.test/host', querySelectorAll: () => [link] }, zone('Asia/Tokyo'));
+  assert.equal(attrs.href, '/host/gatherings/1/analyses/2/view.html?timezone=Asia%2FTokyo');
+  assert.equal(attrs.target, '_blank');
+  assert.equal(attrs.rel, 'noopener noreferrer');
+});
+
+test('report print control invokes print only on a user click', () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const source = fs.readFileSync(require.resolve('../app/main.py'), 'utf8');
+  const script = source.match(/^PRINT_ANALYSIS_SCRIPT = "(.*)"$/m)[1];
+  let handler;
+  let calls = 0;
+  vm.runInNewContext(script, {
+    document: { getElementById(id) { assert.equal(id, 'print-analysis'); return { addEventListener(event, callback) { assert.equal(event, 'click'); handler = callback; } }; } },
+    window: { print() { calls++; } }
+  });
+  assert.equal(calls, 0);
+  handler();
+  assert.equal(calls, 1);
+});

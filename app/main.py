@@ -2,9 +2,11 @@
 
 Development demo only; review security/privacy before public deployment.
 """
+import base64
+import hashlib
 import csv
 import io
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import hmac
 import os
@@ -371,23 +373,43 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
     return workspace_redirect(id, "themes", "discussion-themes")
 
 
+PRINT_ANALYSIS_SCRIPT = "document.getElementById('print-analysis').addEventListener('click', () => window.print());"
+PRINT_ANALYSIS_HASH = base64.b64encode(hashlib.sha256(PRINT_ANALYSIS_SCRIPT.encode()).digest()).decode()
+
+
+@app.get("/host/gatherings/{id}/analyses/{run_id}/view.html")
+def view_analysis(id: int, run_id: int, request: Request):
+    return analysis_report(id, run_id, request, inline=True)
+
+
 @app.get("/host/gatherings/{id}/analyses/{run_id}/export.html")
 def export_analysis(id: int, run_id: int, request: Request):
+    return analysis_report(id, run_id, request, inline=False)
+
+
+def analysis_report(id: int, run_id: int, request: Request, *, inline: bool):
     require_admin(request)
     with connection() as db:
         # A consistent read snapshot; export never writes or calls inference.
         db.execute('BEGIN')
         data = load_analysis_export(db, id, run_id)
     zone, fallback = export_timezone(request.query_params.get('timezone'))
+    script_policy = f"script-src 'sha256-{PRINT_ANALYSIS_HASH}'" if inline else "script-src 'none'"
+    report_csp = f"default-src 'none'; style-src 'unsafe-inline'; {script_policy}; base-uri 'none'; form-action 'none'"
+    download_url = f'/host/gatherings/{id}/analyses/{run_id}/export.html'
+    if not fallback:
+        download_url += '?' + urlencode({'timezone': zone})
     html = templates.get_template('analysis_export.html').render(
         **data, export_zone=zone, timezone_fallback=fallback,
+        inline=inline, print_script=PRINT_ANALYSIS_SCRIPT, report_csp=report_csp, download_url=download_url,
         exported_at=datetime.now(timezone.utc).isoformat(),
         export_time=lambda value: timestamp_display(value, zone, fallback))
     return HTMLResponse(html, headers={
-        'Content-Disposition': f'attachment; filename="gathering-{id}-analysis-{run_id}.html"',
-        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+        'Content-Disposition': f'{"inline" if inline else "attachment"}; filename="gathering-{id}-analysis-{run_id}.html"',
+        'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'no-referrer',
-        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        'Content-Security-Policy': report_csp + "; frame-ancestors 'none'",
+        'X-Frame-Options': 'DENY',
     })
 
 
