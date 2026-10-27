@@ -75,7 +75,8 @@ def test_recent_questions_native_disclosure_and_existing_limit(client):
 
 def test_management_heading_and_dashboard_navigation(client):
     page = client.get('/host/gatherings/1').text
-    assert '<h1>Manage gathering — The Future of Our Library</h1>' in page
+    assert '<h1>The Future of Our Library</h1>' in page
     assert '<a class="back-to-dashboard" href="/host">← Back to Host dashboard</a>' in page
-    assert 'Suggest Discussion Themes' in page
+    assert 'Discussion Themes</a>' in page
+    assert 'Suggest Discussion Themes' in client.get('/host/gatherings/1?tab=themes').text
     assert 'name="csrf_token"' in page

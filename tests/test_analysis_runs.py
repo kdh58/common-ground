@@ -63,7 +63,7 @@ def test_grouping_disclosures_and_current_visibility(client, monkeypatch):
     second = rows()[2]
     act(client, 'approve', second)
     generate(client, 'keep')
-    html = client.get('/host/gatherings/1').text
+    html = client.get('/host/gatherings/1?tab=themes').text
     parsed = Disclosures(html)
     assert len(parsed.ids) == len(set(parsed.ids))
     assert parsed.details['analysis-3']
@@ -131,7 +131,7 @@ def test_default_archive_restore_revision_and_original_sources(client, monkeypat
     assert act(client, 'restore', original).status_code == 409
     assert act(client, 'approve', archived).status_code == 409
     assert act(client, 'edit', archived, title='Cannot edit').status_code == 409
-    page = client.get('/host/gatherings/1').text
+    page = client.get('/host/gatherings/1?tab=themes').text
     assert 'Restore draft' in page
     assert act(client, 'restore', archived).status_code == 200
     restored = rows()[0]
@@ -167,7 +167,7 @@ def test_failed_analysis_preserves_previous_drafts(client, monkeypatch, choice):
     assert generate(client, choice, delete_confirmation='delete').status_code == 200
     assert rows() == before
     assert runs()[-1]['status'] == 'failed'
-    page = client.get('/host/gatherings/1').text
+    page = client.get('/host/gatherings/1?tab=themes').text
     assert Disclosures(page).details['analysis-2'] and 'Failed' in page
 
 
@@ -239,7 +239,7 @@ def test_legacy_migration_is_additive_repeatable_and_honest(client):
         assert {t: [tuple(r) for r in db.execute(f'SELECT * FROM {t}')] for t in tables} == before
         assert db.execute('SELECT count(*) FROM analysis_runs').fetchone()[0] == 0
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
-    html = client.get('/host/gatherings/1').text
+    html = client.get('/host/gatherings/1?tab=themes').text
     assert 'Legacy suggestions — analysis run unknown' in html
     assert 'Question count unknown' in html
     assert not Disclosures(html).details['analysis-legacy']

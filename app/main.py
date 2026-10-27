@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 import hmac
 import os
+import re
 import secrets
 import sqlite3
 from contextlib import contextmanager
@@ -16,6 +17,8 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, URLSafeSerializer
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -45,6 +48,8 @@ async def protect_request(request: Request):
         expected = request.session.get("csrf_token", "")
         if not isinstance(token, str) or not expected or not hmac.compare_digest(token.encode(), expected.encode()):
             raise HTTPException(403, "Invalid form token. Reload the page and try again.")
+        if request.url.path.startswith("/host/gatherings/"):
+            request.state.workspace_form = form
 
 
 app = FastAPI(dependencies=[Depends(protect_request)], title="Common Ground", docs_url=None, redoc_url=None)
@@ -227,13 +232,48 @@ def validate_theme_key(request, gathering_id, kind, key):
         raise HTTPException(400, "Invalid theme form. Reload Manage gathering and try again.")
 
 
-def host_gathering_page(id, request, error="", error_theme=None, error_action="", submitted=None, status_code=200):
+WORKSPACE_TABS = ('gathering', 'participants', 'themes')
+
+
+def workspace_action(request):
+    """Only existing gathering mutations participate in workspace error rendering."""
+    match = re.fullmatch(r'/host/gatherings/(\d+)/(edit|agenda|status|resources(?:/\d+/(?:edit|remove))?|themes(?:/manual|/\d+/[a-z]+)?)', request.url.path)
+    if request.method != 'POST' or not match:
+        return None
+    gathering_id, suffix = match.groups()
+    section = suffix.split('/')[0]
+    tab = 'themes' if section == 'themes' else 'gathering'
+    parts = suffix.split('/')
+    return {'id': int(gathering_id), 'tab': tab, 'section': section,
+            'theme_id': int(parts[1]) if section == 'themes' and len(parts) == 3 else None,
+            'action': parts[-1],
+            'resource_id': int(parts[1]) if section == 'resources' and len(parts) == 3 else None}
+
+
+def workspace_redirect(id, tab, section='', theme=None):
+    url = f'/host/gatherings/{id}?tab={tab}'
+    if theme is not None:
+        url += f'&theme={theme}#theme-{theme}'
+    elif section:
+        url += f'&section={section}#{section}'
+    return RedirectResponse(url, 303)
+
+
+def host_gathering_page(id, request, error="", error_theme=None, error_action="", submitted=None, status_code=200,
+                        tab=None, form_state=None, error_section='', error_resource=None, agenda_rows=None):
     require_admin(request)
     gathering = get_gathering(id)
+    action = workspace_action(request)
+    active_tab = tab or (action['tab'] if action else request.query_params.get('tab',
+                        'themes' if 'theme' in request.query_params else 'gathering'))
+    if active_tab not in WORKSPACE_TABS:
+        raise HTTPException(400, "Unknown workspace tab")
     with connection() as db:
-        questions = load_questions(db, id)
-        themes = workflow.load_themes(db, id)
-        workspace = workflow.analysis_workspace(db, id, themes)
+        questions = load_questions(db, id) if active_tab in ('participants', 'themes') else []
+        themes = workflow.load_themes(db, id) if active_tab == 'themes' else []
+        workspace = workflow.analysis_workspace(db, id, themes) if active_tab == 'themes' else {}
+        rsvps = [dict(r) for r in db.execute(
+            "SELECT name,created_at FROM rsvps WHERE gathering_id=? ORDER BY id", (id,))] if active_tab == 'participants' else []
     for index, theme in enumerate(themes):
         theme['display_position'] = index + 1
         theme['can_move_up'] = index > 0
@@ -245,7 +285,11 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
     # render initializes CSRF for a host's first page; normally login already did so.
     request.session.setdefault('csrf_token', secrets.token_urlsafe(32))
     response = render("host_gathering.html", request, gathering=gathering,
-                  questions=questions, themes=themes, error=error,
+                  questions=questions, rsvps=rsvps, themes=themes, error=error,
+                  active_tab=active_tab, form_state=form_state or {},
+                  error_section=error_section, error_resource=error_resource,
+                  open_section=error_section or request.query_params.get('section', ''),
+                  agenda_rows=agenda_rows if agenda_rows is not None else gathering['items'] + [{}],
                   open_theme=open_theme, error_theme=error_theme, error_action=error_action,
                   submitted=submitted, **workspace,
                   generation_key=theme_form_key(request, id, 'generate'),
@@ -256,6 +300,14 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
 
 @app.get("/host/gatherings/{id}", response_class=HTMLResponse)
 def host_gathering(id: int, request: Request):
+    if request.query_params.get('tab') == 'administration':
+        require_admin(request)
+        get_gathering(id)
+        old_section = request.query_params.get('section', '')
+        section = {'resource-removal': 'resources', 'status': 'status'}.get(old_section, '')
+        response = workspace_redirect(id, 'gathering', section)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
     return host_gathering_page(id, request)
 
 
@@ -303,7 +355,7 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...),
             workflow.finish_analysis(db, run_id, 'failed')
         error = str(exc) if isinstance(exc, ThemeError) else "Ollama returned theme text that could not be saved safely. Please try again."
         return host_gathering_page(id, request, error)
-    return RedirectResponse(f"/host/gatherings/{id}#discussion-themes", 303)
+    return workspace_redirect(id, "themes", "discussion-themes")
 
 
 @app.post("/host/gatherings/{id}/themes/manual")
@@ -318,7 +370,7 @@ def manual_theme(id: int, request: Request, request_key: str = Form(...), title:
         workflow.claim_request(db, request_key, id, 'manual')
         workflow.insert_theme(db, id, title, description, 'manual')
         workflow.finish_request(db, request_key, 'complete')
-    return RedirectResponse(f"/host/gatherings/{id}#discussion-themes", 303)
+    return workspace_redirect(id, "themes", "discussion-themes")
 
 
 @app.post("/host/gatherings/{id}/themes/{theme_id}/{action}")
@@ -335,8 +387,7 @@ def theme_action(id: int, theme_id: int, action: str, request: Request, revision
         return host_gathering_page(id, request, str(exc.detail), error_theme=theme_id,
                                    error_action=action, submitted={'title': title, 'description': description},
                                    status_code=exc.status_code)
-    return RedirectResponse(f"/host/gatherings/{id}?theme={theme_id}#theme-{theme_id}" if action != 'delete'
-                            else f"/host/gatherings/{id}#discussion-themes", 303)
+    return workspace_redirect(id, "themes", "discussion-themes", theme_id if action != 'delete' else None)
 
 
 @app.post("/host/gatherings/{id}/edit")
@@ -347,7 +398,7 @@ def edit_gathering(id: int, request: Request, title: str = Form(...), descriptio
     values = [validate_text(title, 120), validate_text(description, 1000), validate_text(when_text, 120), validate_text(location, 120)]
     with connection() as db:
         db.execute("UPDATE gatherings SET title=?,description=?,when_text=?,location=? WHERE id=?", (*values, id))
-    return RedirectResponse(f"/host/gatherings/{id}", 303)
+    return workspace_redirect(id, "gathering")
 
 
 @app.post("/host/gatherings/{id}/status")
@@ -358,7 +409,7 @@ def set_status(id: int, request: Request, status: str = Form(...)):
         raise HTTPException(400, "Invalid gathering status")
     with connection() as db:
         db.execute("INSERT INTO gathering_status VALUES (?,?) ON CONFLICT(gathering_id) DO UPDATE SET cancelled=excluded.cancelled", (id, int(status == "cancelled")))
-    return RedirectResponse(f"/host/gatherings/{id}", 303)
+    return workspace_redirect(id, "gathering", "status")
 
 
 @app.post("/host/gatherings/{id}/agenda")
@@ -388,7 +439,7 @@ async def save_agenda(id: int, request: Request):
         for position, item in enumerate(items):
             db.execute("INSERT INTO agenda_items(gathering_id,position,title,minutes,notes) VALUES (?,?,?,?,?)", (id, position, *item))
         db.execute("UPDATE gatherings SET agenda=? WHERE id=?", ("\n".join(item[0] for item in items), id))
-    return RedirectResponse(f"/host/gatherings/{id}", 303)
+    return workspace_redirect(id, "gathering", "agenda")
 
 
 def resource_values(title, url):
@@ -410,7 +461,7 @@ def add_resource(id: int, request: Request, title: str = Form(...), url: str = F
     values = resource_values(title, url)
     with connection() as db:
         db.execute("INSERT INTO resources(gathering_id,title,url) VALUES (?,?,?)", (id, *values))
-    return RedirectResponse(f"/host/gatherings/{id}", 303)
+    return workspace_redirect(id, "gathering", "resources")
 
 
 @app.post("/host/gatherings/{id}/resources/{resource_id}/{action}")
@@ -428,7 +479,7 @@ def change_resource(id: int, resource_id: int, action: str, request: Request,
             db.execute("UPDATE resources SET title=?,url=? WHERE id=? AND gathering_id=?", (*values, resource_id, id))
         else:
             db.execute("DELETE FROM resources WHERE id=? AND gathering_id=?", (resource_id, id))
-    return RedirectResponse(f"/host/gatherings/{id}", 303)
+    return workspace_redirect(id, "gathering", "resources")
 
 
 @app.get("/host/gatherings/{id}/export/{kind}.csv")
@@ -452,3 +503,42 @@ def export_csv(id: int, kind: str, request: Request):
             # Prevent spreadsheet applications from evaluating participant text as formulas.
             writer.writerow([("'" + str(v)) if str(v).lstrip().startswith(("=", "+", "-", "@")) or str(v).startswith(("\t", "\r", "\n")) else v for v in row])
     return Response(output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="gathering-{id}-{kind}.csv"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def workspace_error(request, context, message, status_code):
+    """Retain submitted text on the correct server-rendered view, without writes."""
+    form = getattr(request.state, 'workspace_form', {})
+    state = {key: form[key] for key in ('title', 'description', 'when_text', 'location', 'url')
+             if isinstance(form.get(key), str)}
+    agenda_rows = None
+    if context['section'] == 'agenda':
+        columns = [form.getlist(key) for key in ('item_title', 'minutes', 'notes')] if hasattr(form, 'getlist') else [[], [], []]
+        agenda_rows = [{key: values[i] if i < len(values) and isinstance(values[i], str) else ''
+                        for key, values in zip(('title', 'minutes', 'notes'), columns)}
+                       for i in range(min(51, max(1, *(len(values) for values in columns))))]
+    return host_gathering_page(context['id'], request, message, error_theme=context['theme_id'],
+        error_action=context['action'], submitted=state, status_code=status_code, tab=context['tab'],
+        form_state=state, error_section=context['section'], error_resource=context['resource_id'],
+        agenda_rows=agenda_rows)
+
+
+@app.exception_handler(HTTPException)
+async def host_workspace_http_error(request: Request, exc: HTTPException):
+    context = workspace_action(request)
+    if context and is_admin(request) and exc.status_code in (400, 409):
+        try:
+            return workspace_error(request, context, str(exc.detail), exc.status_code)
+        except HTTPException as missing:
+            return await http_exception_handler(request, missing)
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def host_workspace_validation_error(request: Request, exc: RequestValidationError):
+    context = workspace_action(request)
+    if context and is_admin(request):
+        try:
+            return workspace_error(request, context, "Please complete the required fields and check their values.", 422)
+        except HTTPException as missing:
+            return await http_exception_handler(request, missing)
+    return await request_validation_exception_handler(request, exc)

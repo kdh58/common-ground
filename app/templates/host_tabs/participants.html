@@ -1,0 +1,13 @@
+{% from 'macros/timestamps.html' import timestamp %}
+<section class="card" aria-labelledby="participants-heading">
+<h2 id="participants-heading">Participants</h2>
+<p>{{ rsvps|length }} RSVP(s) · {{ questions|length }} question(s)</p>
+<p>RSVP names and original questions are private to the host. Questions are anonymous and are not linked to RSVPs.</p>
+<div class="workspace-exports"><a class="button" href="/host/gatherings/{{ gathering.id }}/export/rsvps.csv?tab=participants">Export RSVPs</a><a class="button secondary" href="/host/gatherings/{{ gathering.id }}/export/questions.csv?tab=participants">Export questions</a></div>
+<h3>RSVPs ({{ rsvps|length }})</h3>
+{% if rsvps %}<ul class="submission-list">{% for rsvp in rsvps %}<li><strong>{{ rsvp.name }}</strong><br><span class="submission-date">Received: {{ timestamp(rsvp.created_at) }}</span></li>{% endfor %}</ul>{% else %}<p>No RSVPs yet.</p>{% endif %}
+</section>
+<section class="card" aria-labelledby="original-questions-heading">
+<h2 id="original-questions-heading">Original questions ({{ questions|length }})</h2>
+{% if questions %}<ul class="submission-list">{% for q in questions %}<li>#{{ q.question_number }}: {{ q.question }}<br><span class="submission-date">Received: {{ timestamp(q.created_at) }}</span></li>{% endfor %}</ul>{% else %}<p>No questions yet.</p>{% endif %}
+</section>

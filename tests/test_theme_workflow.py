@@ -26,9 +26,9 @@ def login(client):
 
 
 def key(client, kind='manual', gathering=1):
-    page = client.get(f'/host/gatherings/{gathering}').text
+    page = client.get(f'/host/gatherings/{gathering}?tab=themes').text
     action = f'/host/gatherings/{gathering}/themes' + ('/manual' if kind == 'manual' else '')
-    form = re.search(r'<form action="' + re.escape(action) + r'".*?</form>', page, re.S)[0]
+    form = re.search(r'<form action="' + re.escape(action) + r'(?:\?tab=themes)?".*?</form>', page, re.S)[0]
     return re.search(r'name="request_key" value="([^\"]+)"', form)[1]
 
 
@@ -118,7 +118,7 @@ def test_ai_generation_scoped_persistent_append_only(client, monkeypatch):
     assert ai['status'] == 'draft' and ai['origin'] == 'ai' and ai['ai_original_title'] == 'AI suggestion'
     assert seen == [[{'id': 1, 'question': 'PRIVATE question'}]]
     assert ai['question_ids'] == [1]
-    assert 'AI suggestion' in client.get('/host/gatherings/1').text
+    assert 'AI suggestion' in client.get('/host/gatherings/1?tab=themes').text
     assert 'AI suggestion' not in public(client)
     assert post(client, '/host/gatherings/1/themes', data={'request_key': request_key}).status_code == 409
     assert len(seen) == 1 and len(rows()) == 3
@@ -132,7 +132,7 @@ def test_ai_generation_scoped_persistent_append_only(client, monkeypatch):
     page = public(client)
     assert 'Host interpretation' in page and 'AI-assisted suggestion, curated by host' in page
     assert 'PRIVATE question' not in page and 'AI suggestion' not in page
-    assert 'OTHER private question' not in client.get('/host/gatherings/1').text
+    assert 'OTHER private question' not in client.get('/host/gatherings/1?tab=themes').text
 
 
 @pytest.mark.parametrize('case', ['timeout', 'unavailable', 'truncated', 'malformed', 'invalid-reference', 'unsafe-control'])
@@ -210,7 +210,7 @@ def test_keyboard_ordering_and_public_order(client):
     assert [r['status'] for r in rows()] == ['published'] * 3
     page = public(client)
     assert page.index('Second topic') < page.index('First topic') < page.index('Third topic')
-    host = client.get('/host/gatherings/1').text
+    host = client.get('/host/gatherings/1?tab=themes').text
     assert 'Move up' in host and 'Move down' in host
     assert 'theme-status-published' in host and '>Published</strong>' in host
 
@@ -227,7 +227,7 @@ def test_authorization_csrf_and_cross_gathering(client, action):
     post(client, '/host/gatherings', data=dict(title='Other', description='D', when_text='W', location='L', agenda='A'))
     assert act(client, action, gathering=2, theme=rows()[0], title='Attack', confirmation='delete').status_code == 404
     assert rows()[0]['title'] == 'Manual topic' and len(rows()) == 1
-    assert 'Manual topic' not in client.get('/host/gatherings/2').text
+    assert 'Manual topic' not in client.get('/host/gatherings/2?tab=themes').text
 
 
 @pytest.mark.parametrize('title,description', [(' ', ''), ('x'*121, ''), ('Good', 'x'*2001), ('Null\x00', ''), ('Good', 'Bad\x7f')])
@@ -246,7 +246,7 @@ def test_xss_is_literal_and_private_metadata_not_published(client):
     title = '<script>alert("title")</script>'
     description = '<img src=x onerror=alert(1)>\nSecond line & text'
     create(client, title, description)
-    host = client.get('/host/gatherings/1').text
+    host = client.get('/host/gatherings/1?tab=themes').text
     assert '<script>' not in host and '&lt;script&gt;' in host
     act(client, 'approve')
     act(client, 'publish')
@@ -427,7 +427,7 @@ def test_generated_description_round_trip_and_publication_rules(client, monkeypa
     assert generated['description'] == description and generated['status'] == 'draft'
     assert generated['question_ids'] == [1, 2]
     assert 'Evening access and staffing' not in public(client)
-    host = client.get('/host/gatherings/1').text
+    host = client.get('/host/gatherings/1?tab=themes').text
     assert 'Questions explore evening access' in host
     assert '&lt;script&gt;' in host and '<script>' not in host
     assert re.search(r'<textarea[^>]*name="description"[^>]*>Questions explore evening access', host)

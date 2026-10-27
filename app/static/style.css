@@ -69,3 +69,29 @@
 
 /* Expanded themes show their description only in the review textarea. */
 .theme-item[open] > summary > .theme-preview { display: none; }
+
+/* Three server-rendered workspace views: ordinary links retain browser history. */
+.workspace-heading { margin-bottom: 24px; overflow-wrap: anywhere; }
+.workspace-heading .eyebrow { margin-bottom: 6px; }
+.workspace-heading h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); margin-bottom: 14px; }
+.workspace-schedule { display: flex; flex-wrap: wrap; gap: 12px 36px; margin-block: 16px; }
+.workspace-schedule div { min-width: 0; overflow-wrap: anywhere; }
+.workspace-schedule dt { font-weight: 700; }
+.workspace-schedule dd { margin: 0; }
+.host-workspace .workspace-tabs { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; max-width: none; margin: 0 0 28px; padding: 0 0 14px; border-bottom: 2px solid #607a6e; }
+.host-workspace .workspace-tabs a { min-height: 44px; padding: 12px 18px; border: 1px solid #607a6e; border-radius: 9px; background: #fff; color: #193129; font-weight: 700; text-align: center; }
+.host-workspace .workspace-tabs a[aria-current="page"] { background: #1c604e; color: #fff; border-color: #1c604e; text-decoration: underline; text-underline-offset: .3em; }
+.workspace-panel > .card, .workspace-panel > .theme-workspace { margin-block: 0 24px; }
+.workspace-panel form + form { padding-top: 16px; border-top: 1px solid #607a6e; }
+.workspace-panel .theme-actions form { padding: 0; border: 0; }
+.workspace-secondary > summary { font-size: 1.5rem; }
+.workspace-exports { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 24px; }
+.submission-list { padding-left: 1.5rem; overflow-wrap: anywhere; }
+.submission-list li { margin-block: 18px; white-space: pre-wrap; }
+.submission-date { color: #43554f; font-size: .9rem; }
+.workspace-panel > .workspace-status { margin-top: 36px; border-top: 3px solid #607a6e; }
+@media (max-width: 500px) {
+  .host-workspace .workspace-tabs a { flex: 1 1 40%; padding-inline: 10px; }
+  .workspace-schedule { display: block; }
+  .workspace-schedule div + div { margin-top: 12px; }
+}

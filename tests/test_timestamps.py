@@ -43,7 +43,7 @@ def test_host_dates_are_safe_and_do_not_change_storage_or_event_text(client):
         db.execute('UPDATE discussion_themes SET created_at=?,updated_at=?', (stamp, stamp))
         db.execute('UPDATE gatherings SET when_text=? WHERE id=1', (event,))
     before = rows()
-    html = client.get('/host/gatherings/1').text
+    html = client.get('/host/gatherings/1?tab=themes').text
     assert html.count('Oct 27, 2026 · 1:22 PM EDT (America/New_York; fallback)') == 2
     assert '123456' not in html and 'T17:22' not in re.sub(r'datetime="[^"]*"', '', html)
     assert 'datetime="2026-10-27T17:22:00+00:00"' in html
@@ -53,7 +53,7 @@ def test_host_dates_are_safe_and_do_not_change_storage_or_event_text(client):
     with main.connection() as db:
         assert db.execute('SELECT when_text FROM gatherings WHERE id=1').fetchone()[0] == event
         db.execute("UPDATE discussion_themes SET created_at=?,updated_at=?", ('<script>alert(1)</script>', ''))
-    html = client.get('/host/gatherings/1').text
+    html = client.get('/host/gatherings/1?tab=themes').text
     assert html.count('Time unavailable') == 2
     assert '<script>alert(1)</script>' not in html
 
@@ -68,7 +68,7 @@ def test_analysis_and_theme_dates_use_the_same_formatter(client, monkeypatch):
     create(client)
     assert generate(client).status_code == 200
     before_themes, before_runs = rows(), runs()
-    html = client.get('/host/gatherings/1').text
+    html = client.get('/host/gatherings/1?tab=themes').text
     # Two theme Created/Updated pairs, analysis start, and analysis completion.
     assert html.count('Oct 27, 2026 · 1:22 PM EDT (America/New_York; fallback)') == 6
     assert '123456' not in html

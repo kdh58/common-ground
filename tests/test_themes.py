@@ -38,11 +38,11 @@ def test_access_and_empty(client, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail('Ollama must not be called')
     monkeypatch.setattr(main, 'suggest_themes', forbidden)
-    assert client.get('/host/gatherings/1').status_code == 403
+    assert client.get('/host/gatherings/1?tab=themes').status_code == 403
     assert post(client, '/host/gatherings/1/themes').status_code == 403
     assert 'Suggest Discussion Themes' not in client.get('/gatherings/1').text
     login(client)
-    assert 'Suggest Discussion Themes' in client.get('/host/gatherings/1').text
+    assert 'Suggest Discussion Themes' in client.get('/host/gatherings/1?tab=themes').text
     assert 'Ollama was not called' in post(client, '/host/gatherings/1/themes').text
     assert post(client, '/host/gatherings/999/themes').status_code == 404
 
@@ -78,7 +78,7 @@ def test_scoped_drafts(client, monkeypatch):
     assert '&lt;b&gt;Discussion&lt;/b&gt;' in response.text
     assert '&lt;script&gt;' in response.text
     assert 'Other private question' not in response.text
-    assert '&lt;b&gt;Discussion&lt;/b&gt;' in client.get('/host/gatherings/1').text
+    assert '&lt;b&gt;Discussion&lt;/b&gt;' in client.get('/host/gatherings/1?tab=themes').text
     assert '&lt;b&gt;Discussion&lt;/b&gt;' not in client.get('/gatherings/1').text
     with main.connection() as db:
         assert [tuple(r) for r in db.execute('SELECT * FROM questions')] == before
@@ -113,7 +113,7 @@ def test_failure_page_preserves_questions(client, monkeypatch):
     response = post(client, '/host/gatherings/1/themes')
     assert response.status_code == 200
     assert 'Please try again' in response.text
-    assert 'Workshops?' in response.text
+    assert 'Workshops?' in client.get('/host/gatherings/1?tab=participants').text
 
 
 @pytest.mark.parametrize('content,metadata,reason', [

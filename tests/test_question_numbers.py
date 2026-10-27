@@ -35,9 +35,10 @@ def test_local_numbers_everywhere_preserve_identifiers(client, monkeypatch):
         assert [(q['id'], q['question_number']) for q in load_questions(db, 1)] == [(40, 1), (10, 2), (70, 3)]
         assert [(q['id'], q['question_number']) for q in load_questions(db, 2)] == [(25, 1), (90, 2)]
     post(client, '/host/login', data={'password': 'password'})
-    page = client.get('/host/gatherings/1').text
+    page = client.get('/host/gatherings/1?tab=themes').text
+    participants = client.get('/host/gatherings/1?tab=participants').text
     for number, text in enumerate(['First concern', 'Second concern', 'Third concern'], 1):
-        assert f'#{number}: {text}' in page
+        assert f'#{number}: {text}' in participants
     assert page.count('Original question #3: Third concern') == 2
     assert 'Original question #1: Third concern' not in page
     assert 'Other first concern' not in page
@@ -70,7 +71,7 @@ def test_local_numbers_everywhere_preserve_identifiers(client, monkeypatch):
         assert db.execute('SELECT name FROM rsvps WHERE id=9').fetchone()[0] == 'Attendee'
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
     main.init_db()
-    assert 'Original question #3: Third concern' in client.get('/host/gatherings/1').text
+    assert 'Original question #3: Third concern' in client.get('/host/gatherings/1?tab=themes').text
 
 
 def test_recent_limit_does_not_restart_numbers(client):

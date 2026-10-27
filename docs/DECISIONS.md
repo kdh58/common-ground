@@ -683,3 +683,127 @@ legacy run provenance cannot be reconstructed, history has no pagination, interr
 analyses require an explicit retry, and human-entered event schedules have no
 structured event-specific timezone configuration. No push or deployment is part
 of this checkpoint.
+
+## ADR-016 — Three-View Server-Rendered Host Workspace (Phase 4)
+
+**Status: Implemented; local checkpoint “Complete three-tab Host workspace redesign”; not deployed**
+
+Before changes, confirmed a clean working tree at
+`c83ce6cff872439c4cf2f03b602397033aa10d16` (Checkpoint AI analysis management and local
+time). Reviewed the README, architecture decisions, existing FastAPI routes,
+templates, styles and tests. This phase restructures the long Manage Gathering
+page without changing its persistence or inference workflow.
+
+**Inventory and placement**
+
+- Dashboard gathering creation, login/logout, recent submissions and navigation
+  remain on the existing host dashboard.
+- Gathering: details, structured agenda, resource creation/editing/removal. Agenda
+  and resources use secondary native disclosures, reopened after relevant saves/errors.
+  Resource removal retains its separate per-resource disclosures, away from Save.
+  A clearly separated Gathering Status section at the bottom contains Cancel/Restore.
+- Participants: scoped RSVP count/names, original gathering-local numbered
+  questions, and both CSV downloads. Names and questions are not linked to each
+  other. Received system timestamps reuse the existing shared timezone formatter.
+- Discussion Themes: unchanged run grouping/current themes/manual drafts,
+  nested disclosures, original source citations, description editor, generation,
+  archive/keep/confirmed deletion, archive/restore, optimistic revisions, approval,
+  publication, unpublishing, individual draft deletion and global ordering.
+- Theme deletion retains its established contextual disclosures and confirmations
+  in Discussion Themes. The initial Administration view and redundant informational
+  sections were removed in favor of three views. No new gathering deletion, RSVP
+  deletion or database maintenance UI is invented; backup/restore scripts are unchanged.
+
+**Navigation and validation**
+
+Use `?tab=gathering|participants|themes`, with Gathering as default.
+Authenticated GETs to the old `?tab=administration` URL redirect to Gathering;
+old resource-removal/status section links map to the appropriate Gathering section.
+Authorization and gathering existence checks run before redirecting. Legacy form
+POSTs still use the existing mutation endpoints and return/errors render on Gathering.
+The persistent workspace header shows title, state, human-entered schedule and
+location plus a dashboard link. Ordinary links in a labeled nav use
+`aria-current="page"`; full-document navigation preserves native browser history
+and bookmarking without implementing a scripted tablist/keyboard model. Links
+wrap on small screens and retain contrast, 44px targets and visible focus.
+Only the selected view's content is rendered, reducing clutter and unnecessary
+loading of private records. Invalid view keys return HTTP 400. Existing
+`?theme=ID` links continue selecting Discussion Themes when no explicit tab is
+provided. Fragment-only historical links require an updated tab query because
+servers cannot inspect URL fragments.
+
+Existing mutation routes remain. Their HTML forms name the owning view, and 303
+redirects explicitly return to it. Section/theme identifiers reopen the relevant
+disclosure and scroll to it. Theme action errors retain existing affected-run/theme
+feedback. Scoped HTTP/validation handlers render host workspace 400/409/422 errors
+on the correct view, retain plain submitted edit fields/agenda rows, and never
+write during error rendering. The valid-CSRF form data is retained on request
+state for this rendering; credentials/tokens are not echoed. API-style responses
+for public validation errors, authentication/CSRF failures and not-found records
+are preserved. Missing fields for a nonexistent gathering do not cause an error
+while attempting to render a missing workspace.
+
+Manual creation errors now show next to the manual form; missing/invalid required
+fields also remain within Discussion Themes. Existing single-use keys, host auth,
+CSRF, input validation and concurrency checks are retained. All server-rendered
+values are escaped. Views and CSV exports remain no-store and gathering-scoped.
+
+**Preservation**
+
+No schema migration or stored-data rewriting. RSVP/question IDs and records,
+numbering order, agenda/resource records, theme IDs/text, analysis provenance,
+citations, archive metadata and approvals/publication remain governed by the same
+code. The Ollama prompt/parser, question-number mapping, archive implementation,
+public visibility rules and UTC storage are unchanged. No framework or dependency
+is added. Production services/database are not restarted, deployed or modified.
+
+**Verification and limitations**
+
+Existing regression tests now visit the explicit view relevant to their assertions;
+the generation-key helper reads the Discussion Themes form's query-aware action.
+New tests cover all three contents/URLs, active-link semantics, scoped loading and
+privacy, persistent header, readonly navigation, redirects, failed/missing forms,
+retained escaped input, reopened sections/theme editors, cancellation/restore,
+resources, RSVP/CSV, generation/archive/restore and approval/publication/unpublishing.
+The full existing workflow suite also exercises all three AI draft choices,
+atomic failures, concurrent edits, duplicate receipts and immutable citations.
+
+Full browser/assistive-technology testing remains manual. Navigation is ordinary
+page loading, so unsaved edits are not automatically saved when switching views.
+No pagination is added to participant lists or analysis history. Global theme
+ordering still spans history/current groups as before. Existing dependency
+warnings and shared-password prototype limits remain outside this UI phase.
+
+Final three-view Phase 4 validation passed 196 Python tests and all 35 native-Intl JavaScript
+tests; five existing dependency deprecation warnings remain. `git diff --check`
+passed. No staging, commit, push, deployment, production database mutation or
+service restart was performed.
+
+The three-view simplification removes the Administration template entirely. Legacy
+GET redirects and old form POSTs are covered for authentication, missing gatherings,
+validation feedback, correct target section and unchanged participant/theme records.
+Cancel/Restore returns to Gathering Status; resource removal reopens Resources.
+Theme deletion confirmations and AI analysis controls remain unchanged.
+
+## Three-tab Host checkpoint verification
+
+Reviewed the full Phase 4 diff and new templates/tests before the local commit
+`Complete three-tab Host workspace redesign`. Confirmed exactly Gathering,
+Participants and Discussion Themes; Gathering Status owns Cancel/Restore, resource
+removal remains in Resources, and old Administration URLs redirect after auth and
+existence checks. No functionality was changed during checkpoint preparation.
+
+The complete automated suite passed 196 Python tests and 35 native-Intl JavaScript
+tests. Five existing dependency deprecation warnings remain. Workspace and existing
+regressions cover RSVP, questions, exports, agenda/resources, AI generation and
+citations, all draft choices, archive/restore, approval/publication, authorization,
+CSRF, validation feedback and concurrency. `git diff --check` passed.
+
+Created a fresh online SQLite snapshot at
+`backups/common-ground-20261027T184037Z.db`, then independently verified integrity,
+required application tables and foreign keys. The backup is private and ignored;
+it is not part of the commit. Only the reviewed source, tests and documentation
+are included. Existing limitations remain: manual browser/accessibility and AI
+interpretation review, unsaved edits when switching tabs, unpaginated histories,
+legacy provenance gaps and shared-password prototype authentication. No new AI
+work, schema changes, deployment, service restart or push was performed.

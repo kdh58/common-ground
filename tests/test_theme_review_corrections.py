@@ -102,8 +102,8 @@ def test_model_local_numbers_map_to_database_sources_in_each_gathering(client, m
         assert response.status_code == 200
         generated = rows(gathering)[-1]
         assert set(generated['question_ids']) == set(expected)
-        assert 'Historical reference to question #70.' in client.get('/host/gatherings/1').text
-        page = client.get(f'/host/gatherings/{gathering}').text
+        assert 'Historical reference to question #70.' in client.get('/host/gatherings/1?tab=themes').text
+        page = client.get(f'/host/gatherings/{gathering}?tab=themes').text
         assert 'Original question #1:' in page
         assert f'Original question #{3 if gathering == 1 else 2}:' in page
     assert len(calls[0]) == 3 and len(calls[1]) == 2

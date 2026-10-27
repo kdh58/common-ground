@@ -111,7 +111,7 @@ License: MIT. See LICENSE.
 
 ## Host operations
 
-Open **Manage gathering** from `/host` to edit title, description, date/time text, and
+Open **Manage gathering** from `/host`; the **Gathering** tab edits title, description, date/time text, and
 location. Save the structured agenda with ordered titles, optional durations
 (1–1440 minutes), and public notes. Clear all fields in a row to remove it; save
 to obtain another blank row. Revise row contents to change their order. Up to 50
@@ -123,11 +123,11 @@ Add, edit, and remove public HTTP/HTTPS resource links. The server does not fetc
 links. Document uploads are deferred pending private storage, file validation,
 size limits, and a safe download policy.
 
-Cancel a gathering to display its cancelled status and close participant forms.
+Use **Gathering → Gathering Status** to cancel a gathering, display its cancelled status, and close participant forms.
 Restore it to reopen forms. Both actions preserve all RSVPs and questions; host
 review and exports remain available while cancelled.
 
-**Export RSVPs** and **Export questions** download separate, gathering-specific CSV
+In **Participants**, **Export RSVPs** and **Export questions** download separate, gathering-specific CSV
 files with IDs, gathering IDs, contribution text, and UTC timestamps. Downloads
 require host login and are marked `no-store`. Spreadsheet formula prefixes are
 escaped with an apostrophe; CSV quoting preserves commas, quotes, and newlines.
@@ -140,7 +140,7 @@ there are no per-organizer accounts or gathering ownership permissions.
 
 ## Community-governed discussion themes
 
-In **Manage gathering → Discussion themes**, use **Suggest Discussion Themes** or
+In **Manage gathering → Discussion Themes**, use **Suggest Discussion Themes** or
 **Create manual draft**. The generator proposes concise titles and 1–3 sentence descriptions with cited
 question IDs. Descriptions explain supported concerns, opportunities, competing
 perspectives, and tradeoffs without claiming community consensus. The prompt asks
@@ -320,3 +320,59 @@ archive/restore, RSVP/gathering creation, citation mapping, approval and publica
 No running application database or service configuration was modified. Full browser
 and assistive-technology review, model interpretation review, and operating the
 updated demo instance remain manual steps.
+
+## Phase 4: Host workspace
+
+Manage Gathering now has three server-rendered, bookmarkable views. Its header
+always shows gathering title, Active/Cancelled state, scheduled time text, location,
+and Back to Host dashboard.
+
+| View | URL example | Existing controls |
+| --- | --- | --- |
+| Gathering (default) | `/host/gatherings/1?tab=gathering` | Details; collapsible agenda and resource management including removal; a separated Gathering Status section for Cancel/Restore at the bottom |
+| Participants | `/host/gatherings/1?tab=participants` | Gathering-scoped RSVP names/count, anonymous numbered questions, both CSV exports |
+| Discussion Themes | `/host/gatherings/1?tab=themes` | Existing manual themes, analyses, nested accordions, citations, archive/keep/confirmed delete, restore, edits, approval, publication, unpublishing and ordering |
+
+Tabs are ordinary navigation links with `aria-current="page"`, not scripted ARIA
+tab widgets. They work without JavaScript, support browser Back/Forward and wrap
+on narrow screens. Only the selected view is rendered; RSVP information stays
+private to Participants and the existing host dashboard. Public routes are unchanged.
+Theme citations still include their original question text in Discussion Themes.
+
+Existing POST endpoints retain their behavior and security checks, returning to
+the owning view. Agenda/resource saves reopen the relevant secondary section;
+theme actions preserve the affected theme/run opening. Validation failures return
+the same HTTP 400/409/422 status, show escaped feedback on the owning view, and
+retain submitted details, agenda rows, resource text or theme text where applicable.
+Authentication/CSRF failures and not-found responses retain their existing policy.
+Old `?theme=ID` links still select Discussion Themes; old fragment-only links such
+as `#discussion-themes` need the explicit `?tab=themes` URL because fragments are
+not sent to the server.
+
+No schema, stored UTC timestamps, gathering schedule interpretation, inference
+prompt/model settings, citation mapping or workflow state rules change in Phase 4.
+No new frontend dependencies are introduced. Theme deletion remains inside its
+existing review/confirmation context in Discussion Themes. Resource removal stays
+inside resource management, in secondary removal disclosures separate from Save.
+Cancel/Restore stays in the separated Gathering Status section at the bottom of
+Gathering. The former Administration view and its redundant informational sections
+are removed; old `?tab=administration` URLs redirect to Gathering. Existing forms
+posted from old Administration URLs also return to Gathering, with unchanged
+authorization, CSRF and validation checks. Database maintenance remains in the existing command-line scripts.
+
+Usability limits: navigation reloads the page and does not automatically save
+unsaved form edits; save before switching views. RSVP/question lists and analysis
+history remain unpaginated. Browser/assistive-technology verification remains a
+manual check; automated coverage checks navigation markup, wrapping/focus styles,
+view-specific contents, validation, redirect destinations, data preservation and
+all existing workflows.
+
+Three-view Phase 4 validation: **196 Python tests and 35 JavaScript tests passed**, with five
+existing dependency deprecation warnings. `git diff --check` passed. The existing
+inference tests use mocked Ollama; no live service update is performed by this UI
+verification. The reviewed three-tab implementation is saved by the local checkpoint
+`Complete three-tab Host workspace redesign`; it is not deployed.
+
+Three-view regressions also verify authorized legacy Administration redirects,
+old form submissions, Gathering Status placement and error feedback, resource
+removal returning to resource management, and preservation of submissions/themes.

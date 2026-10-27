@@ -1,0 +1,64 @@
+<section class="card" aria-labelledby="gathering-heading">
+<h2 id="gathering-heading">Gathering details</h2>
+{% if error and error_section == 'edit' %}<p class="notice" id="details-feedback" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/host/gatherings/{{ gathering.id }}/edit?tab=gathering"{% if error_section == 'edit' %} aria-describedby="details-feedback"{% endif %}>
+<input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
+{% for field, label, limit in [('title','Title',120),('description','Description',1000),('when_text','When',120),('location','Where',120)] %}
+<label for="gathering-{{ field }}">{{ label }}</label><textarea id="gathering-{{ field }}" name="{{ field }}" maxlength="{{ limit }}" required>{{ form_state.get(field, gathering[field]) }}</textarea>{% endfor %}
+<button>Save details</button>
+</form>
+</section>
+<details class="card workspace-secondary" id="agenda"{% if open_section == 'agenda' %} open{% endif %}>
+<summary>Edit agenda</summary>
+<p>Items appear in row order. Clear every field in a row to remove it; save to obtain another blank row. Agenda details are public.</p>
+{% if error and error_section == 'agenda' %}<p class="notice" id="agenda-feedback" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/host/gatherings/{{ gathering.id }}/agenda?tab=gathering"{% if error_section == 'agenda' %} aria-describedby="agenda-feedback"{% endif %}>
+<input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
+{% for item in agenda_rows %}<fieldset><legend>Item {{ loop.index }}</legend>
+<label>Title<input name="item_title" maxlength="200" value="{{ item.title|default('') }}"></label>
+<label>Minutes<input type="number" name="minutes" min="1" max="1440" value="{{ item.minutes if item.minutes is defined and item.minutes is not none else '' }}"></label>
+<label>Notes<textarea name="notes" maxlength="1000">{{ item.notes|default('') }}</textarea></label></fieldset>{% endfor %}
+<button>Save agenda</button>
+</form>
+</details>
+<details class="card workspace-secondary" id="resources"{% if open_section == 'resources' %} open{% endif %}>
+<summary>Resources</summary>
+<p>Resource links are public. Use HTTP or HTTPS URLs.</p>
+{% if error and error_section == 'resources' %}<p class="notice" id="resource-feedback" role="alert">{{ error }}</p>{% endif %}
+{% for resource in gathering.resources %}
+<form method="post" action="/host/gatherings/{{ gathering.id }}/resources/{{ resource.id }}/edit?tab=gathering" aria-label="Edit resource {{ loop.index }}">
+<input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
+<label>Title<input name="title" maxlength="200" required value="{{ form_state.get('title', resource.title) if error_resource == resource.id else resource.title }}"></label>
+<label>URL<input name="url" type="url" maxlength="2048" required value="{{ form_state.get('url', resource.url) if error_resource == resource.id else resource.url }}"></label>
+<button>Save resource</button>
+</form>{% endfor %}
+<h3>Add a resource</h3>
+<form method="post" action="/host/gatherings/{{ gathering.id }}/resources?tab=gathering">
+<input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
+<label>Title<input name="title" maxlength="200" required value="{{ form_state.get('title', '') if error_section == 'resources' and not error_resource else '' }}"></label>
+<label>URL<input name="url" type="url" maxlength="2048" required value="{{ form_state.get('url', '') if error_section == 'resources' and not error_resource else '' }}"></label>
+<button>Add resource</button>
+</form>
+{% if gathering.resources %}
+<div id="resource-removal" class="theme-delete">
+<h3>Remove resource links</h3>
+{% for resource in gathering.resources %}
+<details><summary>Remove {{ resource.title }}</summary>
+<form method="post" action="/host/gatherings/{{ gathering.id }}/resources/{{ resource.id }}/remove?tab=gathering">
+<input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
+<button class="secondary">Remove resource</button>
+</form></details>
+{% endfor %}
+</div>
+{% endif %}
+</details>
+
+<section class="card workspace-status" id="status" aria-labelledby="gathering-status-heading">
+<h2 id="gathering-status-heading">Gathering Status</h2>
+<p>Cancellation closes RSVPs and question submissions while preserving records, published topics, and host access. Restore to reopen participation.</p>
+{% if error and error_section == 'status' %}<p class="notice" id="status-feedback" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/host/gatherings/{{ gathering.id }}/status?tab=gathering"{% if error_section == 'status' %} aria-describedby="status-feedback"{% endif %}>
+<input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><input type="hidden" name="status" value="{{ 'active' if gathering.cancelled else 'cancelled' }}">
+<button class="secondary">{{ 'Restore gathering' if gathering.cancelled else 'Cancel gathering' }}</button>
+</form>
+</section>
