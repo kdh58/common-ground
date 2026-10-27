@@ -4,7 +4,7 @@
 
 **Document:** `docs/DECISIONS.md`
 
-**Updated:** October 23, 2026
+**Updated:** October 27, 2026
 
 **Status:** Living document — prototype development
 
@@ -83,7 +83,7 @@ These are observations from one development environment, not minimum production 
 
 **Tradeoff and consequence**
 
-Local inference improves operational control but introduces hardware costs, model maintenance, performance constraints, and deployment complexity. The endpoint and model name are configurable; the application is not tied to a particular machine. Configuring a remote endpoint changes where questions are processed.
+Local inference improves operational control but introduces hardware costs, model maintenance, performance constraints, and deployment complexity. The endpoint and model name are configurable; the application is not tied to a particular machine. Phase 2 rejects external endpoint hosts before sending questions (ADR-012).
 
 Participant workflows remain available when inference is unavailable. Model licensing, supported request options, and deployment suitability must be verified before public release or changing models.
 
@@ -113,7 +113,7 @@ This setting addresses a constrained theme-generation task; it is not a general 
 
 ## ADR-005 — AI Suggestions Require Human Review
 
-**Status: Draft-only workflow implemented; editing and approval planned**
+**Status: Persistent drafts, host editing, approval, and publication implemented (Phase 2)**
 
 AI-generated themes are advisory. The model may categorize a question inaccurately, overlook a concern, or associate a contribution with an inappropriate theme.
 
@@ -131,11 +131,15 @@ These observations demonstrate why valid JSON and valid source references do not
 - Never present model output as evidence of community consensus.
 - Require an organizer to review interpretations before publication.
 
-Only an authenticated host can request suggestions, and only the selected gathering's questions are sent. Empty gatherings do not trigger inference. Drafts exist only in the returned host review page; they are neither saved nor automatically published.
+Only an authenticated host can request suggestions, and only the selected gathering's questions are sent. Empty gatherings do not trigger inference. Drafts are saved privately in SQLite. Approval and publication require separate host actions; neither happens automatically.
 
-**Planned improvement**
+**Current review workflow and remaining work**
 
-Allow organizers to edit theme names, correct question associations, and approve a final set of themes. AI suggestions and human corrections should remain distinguishable.
+Hosts can edit theme titles and descriptions, create manual themes, order themes,
+approve individual themes, and publish or unpublish them. Editing approved or
+published text resets it to a private draft. AI origin, original suggested title,
+and cited question IDs remain distinguishable from edited text. Source association
+editing and a complete revision history remain future work. See ADR-012.
 
 ## ADR-006 — Community Ownership and Data Governance
 
@@ -263,7 +267,7 @@ Anonymity in the database does not automatically guarantee anonymity at the infr
 
 Before public deployment, finalize:
 
-- Organizer review, editing, and approval of AI themes.
+- Complete revision history and editing of theme source associations.
 - Participant notice, data export, deletion, and retention policies.
 - Authentication and administrative access controls.
 - Accessibility and security acceptance criteria.
@@ -306,3 +310,94 @@ individual organizer accounts, ownership authorization, or retention controls.
 Before this implementation, `scripts/database.sh backup` produced
 `backups/common-ground-20261027T161710Z.db`; integrity and required application
 tables were independently verified using `app.database_tools.validate`.
+
+## ADR-012 — Persistent, Human-Governed Discussion Themes
+
+**Status: Implemented — October 27, 2026**
+
+**Prerequisites**
+
+Phase 1 was clean at Git checkpoint `b69c836`. Before schema work,
+`scripts/database.sh backup` created `backups/common-ground-20261027T163632Z.db`.
+The backup utility's integrity check was independently repeated using
+`app.database_tools.validate`. No backup, database, or secret is included in Git.
+
+**State and public visibility**
+
+- **Draft**: private, unapproved AI suggestion or manual/edited host text.
+- **Approved**: the host explicitly approved the current text; still private.
+- **Published**: approved content that the host separately chose to publish.
+  Only this state appears publicly, labeled as curated discussion topics rather
+  than facts or community consensus. AI-assisted origin remains visible.
+
+Saving any edit, even unchanged text, returns the theme to Draft and immediately
+removes it from public view. Reapproval and republication are explicit. We chose
+one current version per theme rather than keeping a separate live version during
+revision. Unpublishing returns Published to Approved without deleting text.
+Deletion is limited to Draft and requires a confirmation checkbox. Keyboard-friendly
+Move up/down actions change display order, not content or approval; they update
+revision counters so stale forms cannot overwrite newer work.
+
+**Persistence and isolation**
+
+The additive startup migration creates `discussion_themes` (content, origin,
+original AI title, state, order, revision, UTC creation/update timestamps),
+`theme_sources` (immutable cited question IDs), and `theme_requests` (single-use
+creation/generation receipts), with an index on gathering/order/ID. Migration DDL
+shares the existing explicit transaction, is repeatable, and does not modify
+legacy records. Theme IDs use AUTOINCREMENT to avoid accidentally targeting a
+replacement draft with a stale deleted ID.
+
+Every read and mutation is scoped to a gathering. Source questions are verified
+to belong to the same gathering before insertion; hosts cannot change those
+associations through forms. Public queries select only published title,
+description, and origin. Original question text, attendee identities, provenance
+metadata, timestamps, revisions, and diagnostics remain private. Participant tables
+are never written by theme operations. Cancelled gatherings retain their existing
+public visibility and published topics; participation forms remain closed.
+
+**Duplicate and stale requests**
+
+Signed creation/generation keys are scoped to session, gathering, and operation.
+SQLite receipts prevent replay, including concurrent duplicate generation. The
+claim commits before inference; no write transaction remains open while Ollama
+runs. A complete set of suggestions and source references is saved atomically, or
+none is saved. New generations append Draft rows; they never replace existing
+Draft, Approved, or Published themes. Successful POSTs redirect to GET.
+
+Mutations use serialized read/modify/write transactions and per-theme revision
+checks. Stale or duplicate mutation forms return 409. Ordering swaps update both
+rows' revisions. After a failed/interrupted generation, reload to obtain a new
+request key and explicitly retry. There is no background queue, automatic retry,
+or request-receipt cleanup.
+
+**AI and input safeguards**
+
+Retain local Qwen3/Ollama JSON generation, `think: false`, 700 tokens, temperature
+0.2, existing timeouts, truncation rejection, response validation, and bounded
+opt-in diagnostics. Only this gathering's question IDs and text are sent; RSVPs
+and theme edits are not sent. AI descriptions are not generated: hosts supply
+optional context. Errors preserve all submissions and existing themes.
+
+External endpoint hostnames/public IPs are rejected before networking. Permitted
+hosts are localhost, host.docker.internal, ollama, loopback IPs, RFC1918 private
+IPv4 addresses, and IPv6 unique-local addresses. Redirects are not followed and
+HTTP client environment proxies remain disabled. Operators must still use a local
+model and an inference server without cloud routing; endpoint validation cannot
+audit an independently configured server. No new external API, tracking, or
+telemetry is introduced.
+
+Host authorization and existing CSRF checks protect every modifying route.
+Parameterized SQL and server-side text limits reject empty titles, overlong text,
+and unsupported control characters. Titles and descriptions are plain text;
+Jinja autoescaping renders markup literally in text and attributes. Theme labels
+use text and color, large buttons, and the Phase 1 focus/contrast styles.
+
+**Limitations**
+
+Shared-password authentication remains; individual reviewer attribution, full
+revision history, editable source associations, and retention automation are not
+implemented. Publishing curated text can intentionally disclose a participant's
+idea; hosts remain responsible for reviewing it for identifying or sensitive
+content. There is no automated privacy redaction. Tests mock inference; live model
+interpretation and a full assistive-technology audit remain human checks.

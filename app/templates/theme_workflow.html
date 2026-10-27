@@ -1,0 +1,62 @@
+{% macro csrf() -%}<input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">{%- endmacro %}
+{% macro version(theme) -%}{{ csrf() }}<input type="hidden" name="revision" value="{{ theme.revision }}">{%- endmacro %}
+<section class="card theme-workspace" id="discussion-themes" aria-labelledby="discussion-themes-heading">
+<h2 id="discussion-themes-heading">Discussion themes</h2>
+<p>AI suggestions may be inaccurate. Review them against the original questions. They are not factual conclusions or evidence of community consensus.</p>
+<p><strong>Draft:</strong> private, needs review. <strong>Approved:</strong> reviewed, still private. <strong>Published:</strong> visible as a curated discussion topic.</p>
+<p>Editing any theme saves a private draft and removes its approval and publication. Approve it again, then publish it to make the revised text public. Moving a theme changes display order only.</p>
+<form action="/host/gatherings/{{ gathering.id }}/themes" method="post">
+{{ csrf() }}<input type="hidden" name="request_key" value="{{ generation_key }}">
+<button type="submit">Suggest Discussion Themes</button>
+<p>Uses only this gathering's questions with local Ollama. Saves new private drafts; existing topics are preserved.</p>
+</form>
+{% if error %}<p class="notice" role="status">{{ error }}</p>{% endif %}
+<h3>Create a theme without AI</h3>
+<form action="/host/gatherings/{{ gathering.id }}/themes/manual" method="post">
+{{ csrf() }}<input type="hidden" name="request_key" value="{{ manual_key }}">
+<label for="manual-theme-title">Theme title</label><input id="manual-theme-title" name="title" maxlength="120" required>
+<label for="manual-theme-description">Description (optional, plain text)</label><textarea id="manual-theme-description" name="description" maxlength="2000" rows="3"></textarea>
+<button type="submit">Create manual draft</button>
+</form>
+<h3>Saved themes — review and publication</h3>
+{% if themes %}<ol class="theme-list">
+{% for theme in themes %}
+<li class="theme-item" id="theme-{{ theme.id }}">
+<h4>{{ theme.title }}</h4>
+<p><strong class="theme-status theme-status-{{ theme.status }}">{{ theme.status|capitalize }}</strong> · {{ 'AI-generated suggestion' if theme.origin == 'ai' else 'Host-created theme' }} · Position {{ loop.index }}</p>
+{% if theme.description %}<p class="theme-description">{{ theme.description }}</p>{% endif %}
+{% if theme.origin == 'ai' %}<p>Original AI suggestion: {{ theme.ai_original_title }}</p>{% endif %}
+<p>Created: <time datetime="{{ theme.created_at }}">{{ theme.created_at }}</time><br>Updated: <time datetime="{{ theme.updated_at }}">{{ theme.updated_at }}</time></p>
+{% if theme.question_ids %}
+<details><summary>Review cited original questions ({{ theme.question_ids|length }})</summary>
+<ul>{% for q in questions %}{% if q.id in theme.question_ids %}<li>Original question #{{ q.id }}: {{ q.question }}</li>{% endif %}{% endfor %}</ul>
+</details>
+{% endif %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/edit" method="post" aria-label="Edit theme {{ loop.index }}">
+{{ version(theme) }}
+<label for="theme-title-{{ theme.id }}">Title</label><input id="theme-title-{{ theme.id }}" name="title" maxlength="120" value="{{ theme.title }}" required>
+<label for="theme-description-{{ theme.id }}">Description (optional, plain text)</label><textarea id="theme-description-{{ theme.id }}" name="description" maxlength="2000" rows="3">{{ theme.description }}</textarea>
+<button type="submit">Save as draft{% if theme.status != 'draft' %} and remove approval{% endif %}</button>
+</form>
+<div class="theme-actions">
+{% if theme.status == 'draft' %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/approve" method="post">{{ version(theme) }}<button type="submit" aria-label="Approve theme {{ loop.index }}: {{ theme.title }}">Approve theme</button></form>
+{% elif theme.status == 'approved' %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/publish" method="post">{{ version(theme) }}<button type="submit" aria-label="Publish theme {{ loop.index }}: {{ theme.title }}">Publish theme</button></form>
+{% else %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/unpublish" method="post">{{ version(theme) }}<button type="submit" class="secondary" aria-label="Unpublish theme {{ loop.index }}: {{ theme.title }}">Unpublish theme</button></form>
+{% endif %}
+{% if not loop.first %}<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/up" method="post">{{ version(theme) }}<button type="submit" class="secondary" aria-label="Move theme {{ loop.index }} up: {{ theme.title }}">Move up</button></form>{% endif %}
+{% if not loop.last %}<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/down" method="post">{{ version(theme) }}<button type="submit" class="secondary" aria-label="Move theme {{ loop.index }} down: {{ theme.title }}">Move down</button></form>{% endif %}
+</div>
+{% if theme.status == 'draft' %}
+<details class="theme-delete"><summary>Delete unapproved draft {{ loop.index }}</summary>
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/delete" method="post">{{ version(theme) }}
+<p>Deletion permanently removes this draft. Original participant questions remain intact.</p>
+<label class="confirmation"><input type="checkbox" name="confirmation" value="delete" required> I confirm deletion of this draft: {{ theme.title }}</label>
+<button type="submit" class="secondary">Delete draft permanently</button>
+</form></details>
+{% endif %}
+</li>
+{% endfor %}</ol>{% else %}<p>No saved themes yet. Generate suggestions or create a manual draft.</p>{% endif %}
+</section>

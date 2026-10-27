@@ -17,10 +17,12 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from itsdangerous import BadSignature, URLSafeSerializer
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.themes import ThemeError, suggest_themes
+from app import theme_workflow as workflow
 
 ROOT = Path(__file__).parent
 DB = os.environ.get("DATABASE_PATH", "/tmp/common-ground.db")
@@ -86,6 +88,7 @@ def init_db():
                 for position, title in enumerate(row['agenda'].splitlines()):
                     if title.strip():
                         db.execute("INSERT INTO agenda_items(gathering_id,position,title) VALUES (?,?,?)", (row['id'], position, title.strip()))
+        workflow.init_schema(db)
         existing = db.execute("SELECT COUNT(*) FROM gatherings").fetchone()[0]
         if existing == 0:
             db.execute("INSERT INTO gatherings (title, description, when_text, location, agenda) VALUES (?, ?, ?, ?, ?)", (
@@ -136,7 +139,8 @@ def gathering_page(id: int, request: Request, thanks: str = ""):
     g = get_gathering(id)
     with connection() as db:
         count = db.execute("SELECT COUNT(*) FROM rsvps WHERE gathering_id=?", (id,)).fetchone()[0]
-    return render("gathering.html", request, gathering=g, count=count, thanks=thanks)
+        published_themes = workflow.load_themes(db, id, public=True)
+    return render("gathering.html", request, gathering=g, count=count, thanks=thanks, published_themes=published_themes)
 
 @app.post("/gatherings/{id}/rsvp")
 def rsvp(id: int, name: str = Form(...)):
@@ -206,23 +210,33 @@ def health():
     return {"status": "ok"}
 
 
-def host_gathering_page(id, request, generate=False):
+def theme_form_key(request, gathering_id, kind):
+    payload = [gathering_id, kind, request.session['csrf_token'], secrets.token_urlsafe(24)]
+    return URLSafeSerializer(SESSION_SECRET, salt="theme-forms").dumps(payload)
+
+
+def validate_theme_key(request, gathering_id, kind, key):
+    try:
+        payload = URLSafeSerializer(SESSION_SECRET, salt="theme-forms").loads(key)
+        if not isinstance(payload, list) or len(payload) != 4 or payload[:3] != [gathering_id, kind, request.session.get('csrf_token')]:
+            raise BadSignature("Wrong form scope")
+    except BadSignature:
+        raise HTTPException(400, "Invalid theme form. Reload Manage gathering and try again.")
+
+
+def host_gathering_page(id, request, error=""):
     require_admin(request)
     gathering = get_gathering(id)
     with connection() as db:
         questions = [dict(r) for r in db.execute(
             "SELECT id, question FROM questions WHERE gathering_id=? ORDER BY id", (id,))]
-    themes, error = [], ""
-    if generate:
-        if not questions:
-            error = "No questions yet. Add participant questions before suggesting themes. Ollama was not called."
-        else:
-            try:
-                themes = suggest_themes(questions, OLLAMA_BASE_URL, OLLAMA_MODEL)
-            except ThemeError as exc:
-                error = str(exc)
+        themes = workflow.load_themes(db, id)
+    # render initializes CSRF for a host's first page; normally login already did so.
+    request.session.setdefault('csrf_token', secrets.token_urlsafe(32))
     return render("host_gathering.html", request, gathering=gathering,
-                  questions=questions, themes=themes, error=error)
+                  questions=questions, themes=themes, error=error,
+                  generation_key=theme_form_key(request, id, 'generate'),
+                  manual_key=theme_form_key(request, id, 'manual'))
 
 
 @app.get("/host/gatherings/{id}", response_class=HTMLResponse)
@@ -230,9 +244,56 @@ def host_gathering(id: int, request: Request):
     return host_gathering_page(id, request)
 
 
-@app.post("/host/gatherings/{id}/themes", response_class=HTMLResponse)
-def gathering_themes(id: int, request: Request):
-    return host_gathering_page(id, request, generate=True)
+@app.post("/host/gatherings/{id}/themes")
+def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
+    require_admin(request)
+    get_gathering(id)
+    validate_theme_key(request, id, 'generate', request_key)
+    with connection() as db:
+        questions = [dict(r) for r in db.execute("SELECT id,question FROM questions WHERE gathering_id=? ORDER BY id", (id,))]
+        if not questions:
+            return host_gathering_page(id, request, "No questions yet. Add participant questions before suggesting themes. Ollama was not called.")
+        workflow.claim_request(db, request_key, id, 'generate')
+    # Never hold a SQLite write lock during inference. A committed claim blocks retries.
+    try:
+        suggestions = suggest_themes(questions, OLLAMA_BASE_URL, OLLAMA_MODEL)
+        with connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for suggestion in suggestions:
+                title = workflow.plain_text(suggestion['title'], 120)
+                workflow.insert_theme(db, id, title, '', 'ai', suggestion['question_ids'])
+            workflow.finish_request(db, request_key, 'complete')
+    except (ThemeError, HTTPException) as exc:
+        with connection() as db:
+            workflow.finish_request(db, request_key, 'failed')
+        error = str(exc) if isinstance(exc, ThemeError) else "Ollama returned theme text that could not be saved safely. Please try again."
+        return host_gathering_page(id, request, error)
+    return RedirectResponse(f"/host/gatherings/{id}#discussion-themes", 303)
+
+
+@app.post("/host/gatherings/{id}/themes/manual")
+def manual_theme(id: int, request: Request, request_key: str = Form(...), title: str = Form(...), description: str = Form("")):
+    require_admin(request)
+    get_gathering(id)
+    validate_theme_key(request, id, 'manual', request_key)
+    title = workflow.plain_text(title, 120)
+    description = workflow.plain_text(description, 2000, required=False, multiline=True)
+    with connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        workflow.claim_request(db, request_key, id, 'manual')
+        workflow.insert_theme(db, id, title, description, 'manual')
+        workflow.finish_request(db, request_key, 'complete')
+    return RedirectResponse(f"/host/gatherings/{id}#discussion-themes", 303)
+
+
+@app.post("/host/gatherings/{id}/themes/{theme_id}/{action}")
+def theme_action(id: int, theme_id: int, action: str, request: Request, revision: int = Form(...),
+                 title: str = Form(""), description: str = Form(""), confirmation: str = Form("")):
+    require_admin(request)
+    get_gathering(id)
+    with connection() as db:
+        workflow.change_theme(db, id, theme_id, revision, action, title, description, confirmation)
+    return RedirectResponse(f"/host/gatherings/{id}#discussion-themes", 303)
 
 
 @app.post("/host/gatherings/{id}/edit")

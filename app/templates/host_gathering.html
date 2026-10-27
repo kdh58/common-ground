@@ -22,20 +22,7 @@
 <section class="card"><h2>Resources</h2><p>Resource links are public. Use HTTP or HTTPS URLs.</p>
 {% for resource in gathering.resources %}<form method="post" action="/host/gatherings/{{ gathering.id }}/resources/{{ resource.id }}/edit"><input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><label>Title<input name="title" maxlength="200" required value="{{ resource.title }}"></label><label>URL<input type="url" name="url" maxlength="2048" required value="{{ resource.url }}"></label><button>Save resource</button><button class="secondary" formaction="/host/gatherings/{{ gathering.id }}/resources/{{ resource.id }}/remove" formnovalidate>Remove resource</button></form>{% endfor %}
 <form method="post" action="/host/gatherings/{{ gathering.id }}/resources"><input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><label>Title<input name="title" maxlength="200" required></label><label>URL<input name="url" type="url" maxlength="2048" required></label><button>Add resource</button></form></section>
-<section class="card">
-<h2>Discussion themes</h2>
-<p>AI suggestions are drafts for human review and may be inaccurate. Check them against the original questions. Nothing is saved or published.</p>
-<form action="/host/gatherings/{{ gathering.id }}/themes" method="post"><input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
-<button type="submit">Suggest Discussion Themes</button>
-</form>
-{% if error %}<p role="status">{{ error }}</p>{% endif %}
-{% if themes %}
-<h3>Draft suggestions — review required</h3>
-<ul>{% for theme in themes %}<li><strong>{{ theme.title }}</strong>
-<ul>{% for q in questions %}{% if q.id in theme.question_ids %}<li>Original question #{{ q.id }}: {{ q.question }}</li>{% endif %}{% endfor %}</ul>
-</li>{% endfor %}</ul>
-{% endif %}
-</section>
+{% include 'theme_workflow.html' %}
 <section class="card"><h2>Original questions</h2>
 {% if questions %}<ul>{% for q in questions %}<li>#{{ q.id }}: {{ q.question }}</li>{% endfor %}</ul>
 {% else %}<p>No questions yet.</p>{% endif %}

@@ -1,4 +1,7 @@
 """Bounded Ollama request and strict validation of review-only suggestions."""
+import ipaddress
+from urllib.parse import urlsplit
+
 import json
 import logging
 import os
@@ -42,7 +45,24 @@ SCHEMA = {
 }
 
 
+def require_local_endpoint(base_url):
+    """Keep question text off external services; do not resolve arbitrary DNS names."""
+    try:
+        url = urlsplit(base_url)
+        allowed = url.hostname in {'localhost', 'host.docker.internal', 'ollama'}
+        if not allowed:
+            address = ipaddress.ip_address(url.hostname or '')
+            allowed = address.is_loopback or any(address in ipaddress.ip_network(network) for network in
+                ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'))
+        if not allowed or url.scheme not in ('http', 'https') or url.username or url.password or url.query or url.fragment:
+            raise ValueError()
+        url.port
+    except ValueError:
+        raise ThemeError("Ollama must use a local endpoint (localhost, host.docker.internal, ollama, or a private network IP). No questions were sent.")
+
+
 def suggest_themes(questions, base_url, model):
+    require_local_endpoint(base_url)
     payload = {
         "model": model, "stream": False, "format": SCHEMA, "think": False,
         "options": {"temperature": 0.2, "num_predict": 700},

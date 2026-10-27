@@ -74,11 +74,12 @@ def test_scoped_drafts(client, monkeypatch):
     monkeypatch.setattr(httpx.Client, 'post', ollama_post)
     response = post(client, '/host/gatherings/1/themes')
     assert response.status_code == 200
-    assert 'Draft suggestions' in response.text
+    assert 'Saved themes' in response.text
     assert '&lt;b&gt;Discussion&lt;/b&gt;' in response.text
     assert '&lt;script&gt;' in response.text
     assert 'Other private question' not in response.text
-    assert 'Draft suggestions' not in client.get('/host/gatherings/1').text
+    assert '&lt;b&gt;Discussion&lt;/b&gt;' in client.get('/host/gatherings/1').text
+    assert '&lt;b&gt;Discussion&lt;/b&gt;' not in client.get('/gatherings/1').text
     with main.connection() as db:
         assert [tuple(r) for r in db.execute('SELECT * FROM questions')] == before
         assert db.execute('SELECT agenda FROM gatherings WHERE id=1').fetchone()[0].startswith('Welcome')

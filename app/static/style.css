@@ -34,3 +34,23 @@
 @media (forced-colors: active) {
   .host-workspace :is(button, .button) { border: 1px solid ButtonText; }
 }
+
+/* Persistent, human-reviewed discussion themes. */
+.theme-workspace { margin-block: 24px; }
+.theme-list { padding-left: 1.5rem; }
+.theme-item { padding: 20px; margin-block: 20px; border: 1px solid #607a6e; border-radius: 12px; overflow-wrap: anywhere; }
+.theme-item h4 { margin-block: 0 12px; font-size: 1.25rem; }
+.theme-status { display: inline-block; border: 1px solid currentColor; border-radius: 6px; padding: 4px 10px; }
+.theme-status-draft { background: #fff2ce; color: #594200; }
+.theme-status-approved { background: #e5eef8; color: #24476b; }
+.theme-status-published { background: #dcebe0; color: #193129; }
+.theme-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.theme-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-block: 20px; }
+.host-workspace .theme-actions form { margin: 0; }
+.host-workspace .confirmation { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+.host-workspace .confirmation input { flex: 0 0 24px; width: 24px; margin: 0; accent-color: #1c604e; }
+.theme-delete { margin-top: 20px; }
+@media (max-width: 400px) {
+  .theme-item { padding: 12px; }
+  .theme-list { padding-left: 1rem; }
+}
