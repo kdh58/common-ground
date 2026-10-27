@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 FALLBACK_TIMEZONE = 'America/New_York'
 
 
-def timestamp_display(value):
+def timestamp_display(value, time_zone=FALLBACK_TIMEZONE, fallback=True):
     """Readable, labeled prototype fallback until the browser detects its zone.
 
     Require an explicit UTC offset: never guess a timezone for naive/invalid data.
@@ -18,15 +18,17 @@ def timestamp_display(value):
         if instant.tzinfo is None:
             return None
         utc = instant.astimezone(timezone.utc)
-        local = utc.astimezone(ZoneInfo(FALLBACK_TIMEZONE))
+        local = utc.astimezone(ZoneInfo(time_zone))
         hour = local.hour % 12 or 12
         month = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')[local.month - 1]
         period = 'AM' if local.hour < 12 else 'PM'
+        label = f'{month} {local.day}, {local.year} · {hour}:{local.minute:02d} {period} {local.tzname()}'
+        if fallback:
+            label += f' ({time_zone}; fallback)'
         return {
             'iso': utc.isoformat(timespec='seconds'),
-            'label': (f'{month} {local.day}, {local.year} · {hour}:{local.minute:02d} '
-                      f'{period} {local.tzname()} ({FALLBACK_TIMEZONE}; fallback)'),
+            'label': label,
         }
     except (ValueError, OverflowError):
         return None

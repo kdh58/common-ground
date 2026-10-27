@@ -70,6 +70,6 @@ def test_analysis_and_theme_dates_use_the_same_formatter(client, monkeypatch):
     before_themes, before_runs = rows(), runs()
     html = client.get('/host/gatherings/1?tab=themes').text
     # Two theme Created/Updated pairs, analysis start, and analysis completion.
-    assert html.count('Oct 27, 2026 · 1:22 PM EDT (America/New_York; fallback)') == 6
+    assert html.count('Oct 27, 2026 · 1:22 PM EDT (America/New_York; fallback)') == 7
     assert '123456' not in html
     assert rows() == before_themes and runs() == before_runs

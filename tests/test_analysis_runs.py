@@ -7,7 +7,7 @@ import pytest
 
 from app import main, theme_workflow as workflow
 from app.themes import ThemeError
-from tests.form_helpers import post
+from tests.form_helpers import post, generated_notes
 from tests.test_theme_workflow import client, login, create, act, rows
 
 
@@ -34,16 +34,14 @@ def setup_analysis(client, monkeypatch):
     counter = []
     def suggest(questions, *_):
         counter.append(len(counter) + 1)
-        return [{'title': f'Access and staffing {counter[-1]}',
+        return [{'facilitation_notes': generated_notes(), 'title': f'Access and staffing {counter[-1]}',
                  'description': 'Questions explore evening access alongside staff workload.',
                  'question_ids': [q['id'] for q in questions]}]
     monkeypatch.setattr(main, 'suggest_themes', suggest)
     return counter
 
 
-def generate(client, action=None, **data):
-    if action is not None:
-        data['draft_action'] = action
+def generate(client, **data):
     return post(client, '/host/gatherings/1/themes', data=data)
 
 
@@ -59,10 +57,10 @@ def test_grouping_disclosures_and_current_visibility(client, monkeypatch):
     ai = rows()[1]
     act(client, 'approve', ai)
     act(client, 'publish', rows()[1])
-    generate(client, 'keep')
+    generate(client)
     second = rows()[2]
     act(client, 'approve', second)
-    generate(client, 'keep')
+    generate(client)
     html = client.get('/host/gatherings/1?tab=themes').text
     parsed = Disclosures(html)
     assert len(parsed.ids) == len(set(parsed.ids))
@@ -84,116 +82,148 @@ def test_grouping_disclosures_and_current_visibility(client, monkeypatch):
     assert len(runs()) == 3 and all(r['status'] == 'complete' for r in runs())
 
 
-@pytest.mark.parametrize('choice', ['archive', 'keep', 'delete'])
-def test_all_generation_choices_protect_current_and_submissions(client, monkeypatch, choice):
+
+def run_key(client, run_id, gathering=1):
+    html = client.get(f'/host/gatherings/{gathering}?tab=themes').text
+    form = re.search(r'<form action="/host/gatherings/' + str(gathering) + '/analyses/' + str(run_id) + r'/[^"]+".*?</form>', html, re.S)
+    return re.search(r'name="action_key" value="([^"]+)"', form[0])[1]
+
+
+def run_act(client, run_id, action, gathering=1, action_key=None, **data):
+    return post(client, f'/host/gatherings/{gathering}/analyses/{run_id}/{action}?tab=themes',
+        data={'action_key': action_key or run_key(client, run_id, gathering), **data})
+
+
+@pytest.mark.parametrize('old_choice', ['archive', 'keep', 'delete', 'invalid'])
+def test_generation_ignores_obsolete_choices_and_never_changes_previous_data(client, monkeypatch, old_choice):
     setup_analysis(client, monkeypatch)
     create(client, 'Manual draft')
     generate(client)
-    draft = rows()[1]
-    generate(client, 'keep')
+    generate(client)
     act(client, 'approve', rows()[2])
-    generate(client, 'keep')
+    generate(client)
     act(client, 'approve', rows()[3])
     act(client, 'publish', rows()[3])
-    protected = [rows()[i] for i in (0, 2, 3)]
+    before = rows()
+    runs_before = runs()
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
-        other_id = workflow.insert_theme(db, 2, 'Other AI draft', 'Do not alter.', 'ai')
-        before = {t: [tuple(r) for r in db.execute(f'SELECT * FROM {t}')] for t in ('questions', 'rsvps')}
-    response = generate(client, choice, delete_confirmation='delete' if choice == 'delete' else '')
+        before_tables = {t: [tuple(r) for r in db.execute(f'SELECT * FROM {t}')] for t in
+                        ('questions', 'rsvps', 'theme_sources', 'theme_facilitation_notes', 'analysis_run_states')}
+    response = generate(client, draft_action=old_choice, delete_confirmation='delete')
     assert response.status_code == 200
-    remaining = {t['id']: t for t in rows()}
-    assert all(remaining[t['id']] == t for t in protected)
-    assert rows(2)[0]['id'] == other_id and not rows(2)[0]['archived']
-    if choice == 'delete':
-        assert draft['id'] not in remaining
-        assert runs()[0]['generated_theme_count'] == 1
-        with main.connection() as db:
-            assert db.execute('SELECT 1 FROM theme_sources WHERE theme_id=?', (draft['id'],)).fetchone() is None
-            assert db.execute('SELECT 1 FROM theme_analysis_runs WHERE theme_id=?', (draft['id'],)).fetchone() is None
-    else:
-        assert remaining[draft['id']]['archived'] == (choice == 'archive')
-        assert remaining[draft['id']]['question_ids'] == draft['question_ids']
-        assert remaining[draft['id']]['run_id'] == draft['run_id']
-    assert not rows()[-1]['archived']
+    assert rows()[:len(before)] == before
+    assert runs()[:len(runs_before)] == runs_before
     with main.connection() as db:
-        assert {t: [tuple(r) for r in db.execute(f'SELECT * FROM {t}')] for t in before} == before
-        assert not db.execute('PRAGMA foreign_key_check').fetchall()
+        for table in ('questions', 'rsvps', 'analysis_run_states'):
+            assert [tuple(r) for r in db.execute(f'SELECT * FROM {table}')] == before_tables[table]
+        for table in ('theme_sources', 'theme_facilitation_notes'):
+            assert [tuple(r) for r in db.execute(f'SELECT * FROM {table} WHERE theme_id<=?', (before[-1]['id'],))] == before_tables[table]
+    html = response.text
+    form = re.search(r'<form action="/host/gatherings/1/themes\?tab=themes".*?</form>', html, re.S)[0]
+    assert 'Suggest Discussion Themes' in form
+    for obsolete in ('draft_action', 'delete_confirmation', 'Previous unapproved', '<fieldset', 'type="checkbox"'):
+        assert obsolete not in form
+    assert not rows()[-1]['archived'] and not rows()[-1]['inactive_draft']
 
 
-def test_default_archive_restore_revision_and_original_sources(client, monkeypatch):
+def test_make_inactive_and_reactivate_preserve_drafts_notes_and_citations(client, monkeypatch):
     setup_analysis(client, monkeypatch)
     generate(client)
-    original = rows()[0]
-    generate(client)  # Default choice must archive.
-    archived = rows()[0]
-    assert archived['archived'] and archived['revision'] == original['revision'] + 1
-    assert act(client, 'restore', original).status_code == 409
-    assert act(client, 'approve', archived).status_code == 409
-    assert act(client, 'edit', archived, title='Cannot edit').status_code == 409
-    page = client.get('/host/gatherings/1?tab=themes').text
-    assert 'Restore draft' in page
-    assert act(client, 'restore', archived).status_code == 200
-    restored = rows()[0]
-    assert not restored['archived'] and restored['revision'] == archived['revision'] + 1
-    for field in ('id', 'title', 'description', 'question_ids', 'run_id', 'ai_original_title', 'status'):
-        assert restored[field] == original[field]
-    assert act(client, 'approve', restored).status_code == 200
-    assert rows()[0]['status'] == 'approved'
-    assert act(client, 'archive', rows()[0]).status_code == 409
-    create(client)
-    assert act(client, 'archive', rows()[-1]).status_code == 409
+    before = rows()[0]
+    with main.connection() as db:
+        core = tuple(db.execute('SELECT * FROM discussion_themes WHERE id=?', (before['id'],)).fetchone())
+        cited = [tuple(r) for r in db.execute('SELECT * FROM theme_sources')]
+    old_key = run_key(client, 1)
+    assert run_act(client, 1, 'inactive', action_key=old_key).status_code == 200
+    inactive = rows()[0]
+    assert inactive['inactive_draft'] and inactive['revision'] == before['revision']
+    assert inactive['question_ids'] == before['question_ids']
+    assert inactive['facilitation_notes'] == before['facilitation_notes']
+    assert act(client, 'approve', inactive).status_code == 409
+    blocked = act(client, 'edit', inactive, title='Cannot edit inactive')
+    assert blocked.status_code == 409 and 'Reactivate this analysis' in blocked.text
+    assert 'role="alert"' in blocked.text
+    assert run_act(client, 1, 'reactivate', action_key=old_key).status_code == 409
+    assert run_act(client, 1, 'reactivate').status_code == 200
+    assert rows()[0] == before
+    with main.connection() as db:
+        assert tuple(db.execute('SELECT * FROM discussion_themes WHERE id=?', (before['id'],)).fetchone()) == core
+        assert [tuple(r) for r in db.execute('SELECT * FROM theme_sources')] == cited
+    # Generation does not reactivate or otherwise alter older inactive runs.
+    run_act(client, 1, 'inactive')
+    generate(client)
+    assert rows()[0]['inactive_draft'] and not rows()[-1]['inactive_draft']
 
 
-def test_delete_requires_confirmation_before_inference_or_receipt(client, monkeypatch):
+def test_individual_legacy_archives_remain_explicit_and_survive_run_reactivation(client, monkeypatch):
+    setup_analysis(client, monkeypatch)
+    generate(client)
+    assert act(client, 'archive').status_code == 200
+    run_act(client, 1, 'inactive')
+    run_act(client, 1, 'reactivate')
+    assert rows()[0]['archived']
+    assert act(client, 'restore').status_code == 200
+    assert not rows()[0]['archived']
+
+
+def test_run_delete_requires_confirmation_and_retains_request_receipt(client, monkeypatch):
     calls = setup_analysis(client, monkeypatch)
     generate(client)
+    with main.connection() as db:
+        receipt = db.execute("SELECT request_key FROM theme_requests WHERE kind='generate'").fetchone()[0]
     before = rows()
-    response = generate(client, 'delete')
+    response = run_act(client, 1, 'delete')
     assert response.status_code == 400 and 'Confirm deletion' in response.text
-    assert rows() == before and len(calls) == 1 and len(runs()) == 1
-    assert generate(client, 'anything').status_code == 400
+    assert Disclosures(response.text).details['analysis-1']
+    assert rows() == before
+    assert run_act(client, 1, 'delete', confirmation='delete').status_code == 200
+    assert rows() == [] and runs() == []
+    with main.connection() as db:
+        for table in ('theme_facilitation_notes', 'theme_sources', 'theme_analysis_runs', 'analysis_run_questions', 'analysis_run_snapshots', 'analysis_run_states'):
+            assert db.execute(f'SELECT count(*) FROM {table}').fetchone()[0] == 0
+        assert db.execute('SELECT count(*) FROM questions').fetchone()[0] == 2
+        assert db.execute('SELECT count(*) FROM rsvps').fetchone()[0] == 1
+        assert db.execute('SELECT count(*) FROM theme_requests').fetchone()[0] == 1
+        assert not db.execute('PRAGMA foreign_key_check').fetchall()
+    assert generate(client, request_key=receipt).status_code == 409
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize('choice', ['archive', 'keep', 'delete'])
-def test_failed_analysis_preserves_previous_drafts(client, monkeypatch, choice):
+@pytest.mark.parametrize('state', ['approved', 'published'])
+def test_run_delete_protects_current_themes_and_provenance(client, monkeypatch, state):
+    setup_analysis(client, monkeypatch)
+    generate(client)
+    act(client, 'approve')
+    if state == 'published':
+        act(client, 'publish')
+    before = rows()
+    assert run_act(client, 1, 'inactive').status_code == 200
+    assert rows() == before
+    assert run_act(client, 1, 'delete', confirmation='delete').status_code == 409
+    assert rows() == before and len(runs()) == 1
+    html = client.get('/host/gatherings/1?tab=themes').text
+    assert before[0]['title'] in html.split('AI analysis history')[0]
+    assert 'cannot be deleted' in html
+
+
+def test_failed_analysis_preserves_previous_runs_and_drafts(client, monkeypatch):
     setup_analysis(client, monkeypatch)
     generate(client)
     before = rows()
     def fail(*_):
         raise ThemeError('Ollama unavailable. Please try again.')
     monkeypatch.setattr(main, 'suggest_themes', fail)
-    assert generate(client, choice, delete_confirmation='delete').status_code == 200
+    assert generate(client).status_code == 200
+    assert rows() == before and runs()[-1]['status'] == 'failed'
+    assert run_act(client, runs()[-1]['id'], 'delete', confirmation='delete').status_code == 200
     assert rows() == before
-    assert runs()[-1]['status'] == 'failed'
-    page = client.get('/host/gatherings/1?tab=themes').text
-    assert Disclosures(page).details['analysis-2'] and 'Failed' in page
-
-
-@pytest.mark.parametrize('choice', ['archive', 'delete'])
-@pytest.mark.parametrize('change', ['edit', 'approve'])
-def test_host_changes_during_inference_are_preserved(client, monkeypatch, choice, change):
-    setup_analysis(client, monkeypatch)
-    generate(client)
-    draft = rows()[0]
-    def suggest(questions, *_):
-        with main.connection() as db:
-            workflow.change_theme(db, 1, draft['id'], draft['revision'], change, 'Host changed', 'Host interpretation')
-        return [{'title': 'New analysis', 'description': 'Questions explore evening access alongside staff workload.', 'question_ids': [1, 2]}]
-    monkeypatch.setattr(main, 'suggest_themes', suggest)
-    assert generate(client, choice, delete_confirmation='delete').status_code == 200
-    assert not rows()[0]['archived']
-    assert rows()[0]['status'] == ('approved' if change == 'approve' else 'draft')
-    if change == 'edit':
-        assert rows()[0]['title'] == 'Host changed'
 
 
 def test_edit_and_approve_errors_open_affected_old_run_and_theme(client, monkeypatch):
     setup_analysis(client, monkeypatch)
     generate(client)
     old = rows()[0]
-    generate(client, 'keep')
+    generate(client)
     response = act(client, 'edit', old, title=' ', description='Unsaved explanation')
     assert response.status_code == 400
     disclosures = Disclosures(response.text).details
@@ -250,9 +280,131 @@ def test_delete_archived_draft_cleans_metadata_with_foreign_keys_enabled(client,
     setup_analysis(client, monkeypatch)
     generate(client)
     generate(client)
+    act(client, 'archive', rows()[0])
     archived = rows()[0]
     with main.connection() as db:
         db.execute('PRAGMA foreign_keys=ON')
         workflow.change_theme(db, 1, archived['id'], archived['revision'], 'delete', confirmation='delete')
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
     assert len(rows()) == 1 and runs()[0]['generated_theme_count'] == 1
+
+
+@pytest.mark.parametrize('action', ['inactive', 'reactivate', 'delete'])
+def test_run_actions_authorization_csrf_signed_scope_and_failures(client, monkeypatch, action):
+    path = f'/host/gatherings/1/analyses/1/{action}?tab=themes'
+    assert client.post(path, data={'action_key': 'bad'}).status_code == 403
+    setup_analysis(client, monkeypatch)
+    generate(client)
+    key = run_key(client, 1)
+    before = rows()
+    assert client.post(path, data={'action_key': key}).status_code == 403
+    assert client.post(path, data={'action_key': key, 'csrf_token': 'bad'}).status_code == 403
+    assert post(client, path, data={'action_key': key + 'tamper', 'confirmation': 'delete'}).status_code == 400
+    with main.connection() as db:
+        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+    assert post(client, f'/host/gatherings/2/analyses/1/{action}', data={'action_key': key, 'confirmation': 'delete'}).status_code == 400
+    missing = post(client, path)
+    assert missing.status_code == 422 and Disclosures(missing.text).details['analysis-1']
+    assert rows() == before
+
+
+@pytest.mark.parametrize('edit', ['edit', 'notes', 'approve'])
+def test_stale_run_actions_reject_theme_or_note_changes(client, monkeypatch, edit):
+    setup_analysis(client, monkeypatch)
+    generate(client)
+    key = run_key(client, 1)
+    item = rows()[0]
+    if edit == 'notes':
+        with main.connection() as db:
+            workflow.save_notes(db, 1, item['id'], item['facilitation_notes']['revision'], 'New private work.', '', '')
+    else:
+        act(client, edit, item, title='Revised title', description='Revised public text.')
+    before = rows()
+    response = run_act(client, 1, 'delete', action_key=key, confirmation='delete')
+    assert response.status_code == 409 and 'changed' in response.text
+    assert Disclosures(response.text).details['analysis-1']
+    assert rows() == before and len(runs()) == 1
+
+
+def test_deleting_one_run_preserves_other_run_records_and_sources(client, monkeypatch):
+    setup_analysis(client, monkeypatch)
+    generate(client)
+    generate(client)
+    first = rows()[0]
+    with main.connection() as db:
+        before = {table: [tuple(r) for r in db.execute(f'SELECT * FROM {table}')]
+                  for table in ('questions', 'rsvps')}
+        first_sources = [tuple(r) for r in db.execute('SELECT * FROM theme_sources WHERE theme_id=?', (first['id'],))]
+        first_notes = tuple(db.execute('SELECT * FROM theme_facilitation_notes WHERE theme_id=?', (first['id'],)).fetchone())
+    with main.connection() as db:
+        db.execute('PRAGMA foreign_keys=ON')
+        version = workflow.analysis_version(db, 1, 2)
+        workflow.change_analysis(db, 1, 2, version, 'delete', 'delete')
+        assert not db.execute('PRAGMA foreign_key_check').fetchall()
+        assert [tuple(r) for r in db.execute('SELECT * FROM theme_sources WHERE theme_id=?', (first['id'],))] == first_sources
+        assert tuple(db.execute('SELECT * FROM theme_facilitation_notes WHERE theme_id=?', (first['id'],)).fetchone()) == first_notes
+        assert {table: [tuple(r) for r in db.execute(f'SELECT * FROM {table}')] for table in before} == before
+    assert rows() == [first] and [r['id'] for r in runs()] == [1]
+
+
+def test_manual_theme_association_protects_run_deletion(client, monkeypatch):
+    setup_analysis(client, monkeypatch)
+    generate(client)
+    create(client, 'Protected manual topic')
+    with main.connection() as db:
+        db.execute('INSERT INTO theme_analysis_runs VALUES (?,1)', (rows()[-1]['id'],))
+    before = rows()
+    assert run_act(client, 1, 'delete', confirmation='delete').status_code == 409
+    assert rows() == before
+
+
+def test_delete_during_inference_does_not_resurrect_deleted_run(client, monkeypatch):
+    setup_analysis(client, monkeypatch)
+    def suggest(*_):
+        with main.connection() as db:
+            run_id = db.execute('SELECT id FROM analysis_runs ORDER BY id DESC').fetchone()[0]
+            workflow.change_analysis(db, 1, run_id, workflow.analysis_version(db, 1, run_id), 'delete', 'delete')
+        return [{'title': 'Discarded output', 'description': 'Questions explore evening access and staffing.',
+                 'question_ids': [1, 2], 'facilitation_notes': generated_notes()}]
+    monkeypatch.setattr(main, 'suggest_themes', suggest)
+    response = generate(client)
+    assert response.status_code == 200 and 'deleted while generation was running' in response.text
+    assert rows() == [] and runs() == []
+    with main.connection() as db:
+        assert db.execute("SELECT status FROM theme_requests WHERE kind='generate'").fetchone()[0] == 'failed'
+        assert db.execute('SELECT count(*) FROM questions').fetchone()[0] == 2
+        assert db.execute('SELECT count(*) FROM theme_facilitation_notes').fetchone()[0] == 0
+
+
+def test_make_inactive_during_inference_keeps_result_inactive(client, monkeypatch):
+    setup_analysis(client, monkeypatch)
+    def suggest(*_):
+        with main.connection() as db:
+            run_id = db.execute('SELECT id FROM analysis_runs ORDER BY id DESC').fetchone()[0]
+            workflow.change_analysis(db, 1, run_id, workflow.analysis_version(db, 1, run_id), 'inactive')
+        return [{'title': 'New output', 'description': 'Questions explore evening access and staffing.',
+                 'question_ids': [1, 2], 'facilitation_notes': generated_notes()}]
+    monkeypatch.setattr(main, 'suggest_themes', suggest)
+    assert generate(client).status_code == 200
+    assert rows()[0]['inactive_draft'] and runs()[0]['status'] == 'complete'
+    assert run_act(client, 1, 'reactivate').status_code == 200
+    assert not rows()[0]['inactive_draft']
+
+
+def test_run_state_migration_does_not_rewrite_legacy_runs_or_theme_archives(client, monkeypatch):
+    setup_analysis(client, monkeypatch)
+    generate(client)
+    act(client, 'archive')
+    with main.connection() as db:
+        db.execute("UPDATE analysis_runs SET draft_action='archive' WHERE id=1")
+        db.execute('DROP TABLE analysis_run_states')
+        tables = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+        before = {table: [tuple(r) for r in db.execute(f'SELECT * FROM {table}')] for table in tables}
+    main.init_db()
+    main.init_db()
+    with main.connection() as db:
+        assert {table: [tuple(r) for r in db.execute(f'SELECT * FROM {table}')] for table in tables} == before
+        assert not db.execute('SELECT * FROM analysis_run_states').fetchall()
+        assert not db.execute('PRAGMA foreign_key_check').fetchall()
+    assert rows()[0]['archived'] and not rows()[0]['inactive_draft']
+    assert 'Previous drafts:' not in client.get('/host/gatherings/1?tab=themes').text

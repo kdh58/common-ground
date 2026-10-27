@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app import main, theme_workflow as workflow
-from tests.form_helpers import post
+from tests.form_helpers import post, generated_notes
 from tests.test_theme_workflow import client, login, create, act, rows
 
 
@@ -91,14 +91,14 @@ def test_model_local_numbers_map_to_database_sources_in_each_gathering(client, m
         prompt = payload['messages'][0]['content']
         assert 'gathering-local question number' in prompt
         assert 'do not insert question numbers or identifiers' in prompt
-        return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps({'themes': [{
+        return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps({'themes': [{'facilitation_notes': generated_notes(),
             'title': 'Workshop access and staffing',
             'description': 'The questions explore workshop access alongside staffing requirements.',
             'question_ids': [1, len(questions)],
         }]})}}, request=httpx.Request('POST', url))
     monkeypatch.setattr(httpx.Client, 'post', ollama)
     for gathering, expected in [(1, [40, 70]), (2, [1, 90])]:
-        response = post(client, f'/host/gatherings/{gathering}/themes', data={'draft_action': 'keep'})
+        response = post(client, f'/host/gatherings/{gathering}/themes')
         assert response.status_code == 200
         generated = rows(gathering)[-1]
         assert set(generated['question_ids']) == set(expected)
@@ -120,8 +120,8 @@ def test_model_local_numbers_map_to_database_sources_in_each_gathering(client, m
 def test_route_rejects_unmapped_model_sources_without_partial_storage(client, monkeypatch, bad_sources):
     before = seed_nonconsecutive_sources(client)
     monkeypatch.setattr(main, 'suggest_themes', lambda *_: [
-        {'title': 'Valid first', 'description': 'Questions explore access to evening workshops.', 'question_ids': [1]},
-        {'title': 'Invalid second', 'description': 'Questions explore staffing for workshops.', 'question_ids': bad_sources},
+        {'facilitation_notes': generated_notes(), 'title': 'Valid first', 'description': 'Questions explore access to evening workshops.', 'question_ids': [1]},
+        {'facilitation_notes': generated_notes(), 'title': 'Invalid second', 'description': 'Questions explore staffing for workshops.', 'question_ids': bad_sources},
     ])
     response = post(client, '/host/gatherings/1/themes')
     assert response.status_code == 200 and 'invalid question references' in response.text

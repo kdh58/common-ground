@@ -58,8 +58,28 @@
     });
   }
 
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { selectTimeZone, parseTimestamp, formatTimestamp, localizeTimestamps };
+  function localizeAnalysisExportLinks(doc, zone = selectTimeZone()) {
+    doc.querySelectorAll('a[data-analysis-export]').forEach((link) => {
+      try {
+        const base = new URL(doc.baseURI);
+        const url = new URL(link.getAttribute('href'), base);
+        if (url.origin !== base.origin || !/^\/host\/gatherings\/\d+\/analyses\/\d+\/export\.html$/.test(url.pathname)) return;
+        if (zone.fallback) url.searchParams.delete('timezone');
+        else url.searchParams.set('timezone', zone.timeZone);
+        // Only our same-origin download link is changed; no fetch or HTML insertion.
+        link.setAttribute('href', url.pathname + url.search);
+      } catch {
+        // Unenhanced links retain the labeled server timezone fallback.
+      }
+    });
   }
-  if (typeof document !== 'undefined') localizeTimestamps(document);
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { selectTimeZone, parseTimestamp, formatTimestamp, localizeTimestamps, localizeAnalysisExportLinks };
+  }
+  if (typeof document !== 'undefined') {
+    const zone = selectTimeZone();
+    localizeTimestamps(document, zone);
+    localizeAnalysisExportLinks(document, zone);
+  }
 })();

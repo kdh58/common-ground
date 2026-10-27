@@ -492,6 +492,9 @@ Legacy blanks are deliberately not backfilled or republished automatically.
 
 **Status: Implemented, not deployed — October 27, 2026**
 
+Lifecycle update: generation-side previous-draft choices described here are
+historical and superseded by ADR-018. New generation never changes older themes.
+
 Before schema work, `bash scripts/database.sh backup` saved
 `backups/common-ground-20261027T174713Z.db`. Independently verified SQLite integrity,
 required tables and foreign keys. Applied migration twice to an isolated copy of
@@ -519,7 +522,7 @@ it in progress or interrupted, not complete. There is no background recovery.
 Original generated counts survive explicit theme deletion; current status counts
 reflect remaining records. Unsuccessful runs have no generated count.
 
-**Previous-draft choices and concurrency**
+**Previous-draft choices and concurrency (superseded by ADR-018)**
 
 Default Archive creates metadata only for earlier unapproved AI drafts. Keep
 preserves their active state. Delete requires a separate explicit checkbox and
@@ -707,7 +710,8 @@ page without changing its persistence or inference workflow.
   other. Received system timestamps reuse the existing shared timezone formatter.
 - Discussion Themes: unchanged run grouping/current themes/manual drafts,
   nested disclosures, original source citations, description editor, generation,
-  archive/keep/confirmed deletion, archive/restore, optimistic revisions, approval,
+  independent Make inactive/Reactivate/confirmed run deletion, legacy individual
+  archive/restore, optimistic revisions, approval,
   publication, unpublishing, individual draft deletion and global ordering.
 - Theme deletion retains its established contextual disclosures and confirmations
   in Discussion Themes. The initial Administration view and redundant informational
@@ -807,3 +811,301 @@ are included. Existing limitations remain: manual browser/accessibility and AI
 interpretation review, unsaved edits when switching tabs, unpaginated histories,
 legacy provenance gaps and shared-password prototype authentication. No new AI
 work, schema changes, deployment, service restart or push was performed.
+
+## ADR-017 — Host-Private Facilitation Notes and Snapshot-Based Coverage (Phase 5)
+
+**Status: Implemented; not deployed or committed**
+
+**Prerequisites and preservation**
+
+Confirmed a clean working tree at `5f61ee9d6963a4d383280766bae852cd85b88f71`, the
+three-tab Host workspace checkpoint. Reviewed the README, decisions, schema,
+workflow/routes/templates and Ollama tests before editing. Before any schema work,
+`bash scripts/database.sh backup` created
+`backups/common-ground-20261027T184610Z.db`. Independently checked SQLite integrity,
+required tables and foreign keys. Applied the new migration twice to an isolated
+copy of that backup: original table records were unchanged, new tables empty,
+foreign keys/integrity valid. The running application/database was not migrated,
+restarted or modified.
+
+Add three tables with `CREATE TABLE IF NOT EXISTS` in the existing startup
+transaction; no legacy table/row or stored timestamp is rewritten:
+
+- `theme_facilitation_notes`: current shared concerns, different perspectives and
+  JSON prompt list; independent revision and UTC creation/update timestamps; an
+  immutable JSON copy of the original AI proposal when generated. Legacy/manual
+  themes have no notes row until entered/generated, exposed as blank revision 0.
+- `analysis_run_snapshots`: explicit marker and input count for runs whose exact
+  inputs are recorded. The marker distinguishes unknown history from known inputs.
+- `analysis_run_questions`: run-to-question IDs plus the original gathering-local
+  number. Referenced questions retain their existing IDs and text; this is an ID
+  snapshot, not a duplicate participant-text store or a text revision history.
+
+Original title/description, citations, statuses, analysis association and participant
+submissions are preserved. Explicit draft deletion removes its dependent notes
+before deleting the theme; run snapshots and original participant questions remain.
+Backup/restore already includes all tables without changing its workflow.
+
+**Model contract and validation**
+
+Extend each structured theme with required `facilitation_notes` containing exactly
+`shared_concerns`, `different_perspectives`, and `discussion_questions`. Require
+1–3 sentence prose in each of the first two fields (1–1,000 characters), and 2–3
+nonempty distinct prompts (up to 300 characters each). Reject wrong types, missing
+fields, controls, duplicate prompts, invalid root citations or incomplete/truncated
+JSON. The generation route repeats notes validation before persistence so an invalid
+batch cannot bypass atomic theme/source/note rollback. Tests' synthetic responses
+now include complete notes; dedicated negative tests retain malformed/missing cases.
+
+The system prompt limits every note to that theme's own cited questions, asks for
+supported tradeoffs/differing priorities without asserting consensus, explicitly
+requires acknowledging insufficient evidence of disagreement, and requests neutral
+open-ended facilitation prompts. It forbids invented people/opinions/agreements/
+conflicts/citations and treats participant text as untrusted data, never instructions.
+Root citations still use local numbers validated/mapped server-side to actual IDs.
+Notes have no model-defined extra citation field. Structural validation and the
+sentence heuristic cannot establish semantic faithfulness, neutrality or consensus;
+host review remains responsible for those judgments.
+
+Raise the bounded response budget from 1,600 to 4,800 tokens and network/read timeout
+from 45 to 90 seconds; keep connect at 5 seconds, `think: false`, temperature 0.2,
+strict local endpoint checks, disabled environment proxies/redirects, explicit
+truncation rejection and numeric/enum-only diagnostics. Longer output may increase
+latency and still exceed limits. There is no external inference, silent fallback,
+automatic retry or title-only acceptance. A synthetic local Qwen3 probe completed
+one full theme with two prompts in 10.02 seconds (9.91 inference; 210 output tokens)
+without truncation, persisted valid mapped sources and reported two input questions
+in coverage. Only counts/timings/flags were printed; no participant/model text.
+This one-case observation does not establish worst-case latency or semantic quality.
+
+**Private editing and concurrency**
+
+The existing Discussion Themes accordion contains labeled editable notes fields,
+a host-only/suggestions disclaimer and a separate Save private notes form. No tab
+or new analysis disclosure hierarchy is introduced; collapsed previews stay compact.
+Manual/legacy themes can receive host-written notes without inference. Host prose
+allows blank working drafts up to 2,000 characters; prompts allow 0–3 lines up to
+500 characters each, with a 1,502-character textarea/input cap. Text is escaped by
+Jinja, checked for lengths/controls and protected by existing auth/CSRF.
+
+Saving notes requires its own revision token and a gathering-scoped theme lookup
+in a short write transaction; stale notes return 409, reopen the editor and preserve
+attempted text. Notes edits change only the notes row, never the public theme's
+revision, text, status or timestamps. Public edit forms remain governed by the
+original reapproval rules and can survive an unrelated private notes edit. Notes
+survive all status/archive transitions and restart; archived drafts allow private
+notes edits while public edit/approval still requires Restore. Original AI proposals
+remain distinct from edited working notes. The initial bulk Archive/Delete revision snapshot has since been removed
+(ADR-018): generation no longer changes previous drafts, and explicit run controls
+check both public and private-note revisions for stale forms. Public queries select only title/description/origin, and notes
+are never concatenated into a published description or included in CSV exports.
+
+**Deterministic coverage**
+
+The run's ID snapshot is recorded with its single-use generation claim, before
+inference and without holding a write lock during the model call. Completed runs
+calculate a distinct source-ID set from the run's remaining themes and compare it
+to the snapshot. All theme states, including archived drafts, contribute; overlapping
+citations count once. Other runs, unrelated published topics and later-arriving
+questions do not affect the input denominator. A collapsible uncited list displays
+snapshot local numbers and the preserved original question text. Deleting a draft
+can reduce current coverage, intentionally reflecting remaining saved associations.
+
+Historical runs with no ID snapshot explicitly show Coverage unavailable even if
+a legacy numeric question count is known. Pending/failed runs and incomplete or
+inconsistent snapshots also show an unavailable explanation rather than fabricated
+counts. Gathering scope is checked when storing snapshots and when calculating
+coverage. Coverage uses no AI and explicitly does not imply representativeness,
+agreement or adequate discussion. No historical snapshot reconstruction occurs.
+
+**Verification and limits**
+
+The complete Python suite covers the original three-tab workflow plus structured
+notes, private/public separation, independent revisions, manual/legacy notes,
+archive persistence, concurrency, auth/CSRF/XSS, rollback, local IDs, snapshots,
+uncited lists, cross-gathering/run isolation and additive migrations. Native Intl
+JavaScript tests continue to validate the unchanged local-time behavior. Existing
+shared-password prototype limits, unpaginated histories, manual browser/accessibility
+review and human semantic review remain. Do not deploy, push or commit this phase
+automatically.
+
+Phase 5 final validation: 239 Python tests and 35 native-Intl JavaScript tests passed.
+Five existing FastAPI/Starlette deprecation warnings remain. `git diff --check`
+passed; no files are staged. Synthetic inference and migration verification used
+disposable databases only. No deployment, push, commit or live schema migration
+was performed.
+
+## ADR-018 — Additive Generation and Independent Analysis Run Controls
+
+**Status: Implemented; not deployed or committed**
+
+**Generation simplification**
+
+New AI Analysis is now one Suggest Discussion Themes button and a short explanation.
+Remove the Previous unapproved AI drafts fieldset, archive/keep/delete radio options,
+generation-side deletion confirmation, corresponding route parameters/validation,
+previous-draft snapshot and `apply_draft_action` processing. Each new run only saves
+its own validated private themes/notes/citations and question snapshot. It never
+updates prior analyses, drafts, approvals, publication, citations or archives.
+Unknown obsolete form fields are ignored; replay keys remain single-use.
+
+The legacy `analysis_runs.draft_action` column and every old value are preserved.
+New records set the required compatibility column to `keep`, without branching on
+it or rendering it. No destructive migration or historical data reinterpretation.
+The Ollama contract, evidence instructions, bounded generation settings, source
+mapping, per-run coverage and private note rules are unchanged by this task.
+
+**Run state and controls**
+
+An additive `analysis_run_states` table contains run_id, active/inactive state and
+revision. Missing rows mean active, preserving existing records without backfill.
+Before adding it, created `backups/common-ground-20261027T193245Z.db` and independently
+verified integrity, required application tables and foreign keys. Schema creation
+is repeatable inside the existing startup transaction.
+
+Each existing run accordion has Make inactive or Reactivate and a secondary Delete
+confirmation disclosure. Inactivity changes only the run-state row, not its theme
+text/revisions, individual archive flags, note content, approvals, publication or
+citations. Unapproved AI drafts of inactive runs require Reactivate before public
+editing or approval; private notes remain editable. Approved/published themes stay
+in Current Themes and retain their public visibility. Reactivation does not undo
+legacy per-theme archives; existing explicit Restore draft behavior is retained.
+
+Deletion requires the explicit checkbox value and a valid signed action key. Refuse
+the entire operation if any associated theme is approved, published, manual or
+belongs to another gathering. For an eligible run, atomically delete its unapproved
+AI themes and dependent notes/source links/archive metadata, snapshot rows, state
+row and run. Do not delete participant questions, RSVPs or other runs/themes/source
+associations. Keep the single-use generation receipt so deleting a run never permits
+replaying its generation request. The destructive disclosure explains these limits;
+protected runs offer Make inactive instead of a Delete form.
+
+**Concurrency, error feedback and inference races**
+
+Run actions require host auth and CSRF plus a session/gathering/run-scoped signed
+key containing a hash of current run status, state revision and associated theme
+and private-note revisions. Compare inside `BEGIN IMMEDIATE`; changed theme text,
+notes, status, ordering, membership or run state rejects stale actions with 409.
+Tampered/wrong-scope keys return 400. Errors reopen the affected run on Discussion
+Themes with accessible nearby feedback; successful state actions return to it.
+New generation returns to the newest run as before. All forms are native and keep
+44px targets, focus/contrast and existing nested accordion behavior.
+
+If a host makes a pending run inactive, its eventual drafts retain that inactive
+state. If a pending run is deleted first, the generation write transaction checks
+that its run still exists and discards the response if not. It cannot recreate
+the deleted run or save orphan drafts. The failed receipt remains consumed. Model
+server computation is not interrupted; there is no new background cancellation
+API or automatic retry. Deleting a failed/empty run remains possible.
+
+**Verification and limits**
+
+Tests cover additive generation even with stale previous-draft options posted,
+independent reversible state, archive preservation, confirmed FK-safe deletion,
+protected approved/published/manual themes, unaffected other runs/citations and
+submissions, stale public/private edits, signed scope, auth/CSRF, validation error
+location, generation-receipt replay protection, migration preservation and pending
+inference races. The full existing suites also cover coverage, private notes and
+public visibility. Browser/assistive-technology audit remains manual, history is
+unpaginated, and protected runs must remain recorded for provenance rather than
+being deleted. No service restart, live schema migration, deployment, push or
+commit is part of this work.
+
+Final independent-run validation passed 255 Python tests and 35 native-Intl
+JavaScript tests, with five existing dependency deprecation warnings.
+`git diff --check` passed. Applied migrations twice on an isolated copy of
+`backups/common-ground-20261027T193245Z.db`: original records were unchanged,
+no legacy run states were inferred, and integrity/foreign-key checks passed.
+No files were staged, no running database/service was updated, and no commit,
+push or deployment was performed.
+
+## Host provenance and active-first history ordering
+
+Current Themes summaries now show an AI theme's originating analysis number,
+recorded analysis creation time through the shared local-time formatter, and an
+Analysis inactive indicator independently of its approval/publication state.
+The existing disclosure-opening link behavior targets the original run even when
+it sorts into the inactive group. Manual themes say Manually created. Untracked
+legacy AI themes disclose unavailable analysis provenance and use their own
+creation timestamp; no run or historical timestamp is invented.
+
+History is grouped active before inactive, retaining descending run ID (the
+existing creation-sequence order) within each group. Only the first displayed
+run opens by default; explicit action/error/deep-link targeting still takes
+precedence. Current Themes keeps the existing position/id ordering supplied by
+the host; display provenance and history grouping never reorder theme records or
+change approval/publication, citations or stored data. There is no migration,
+authorization change or new script/dependency. Tests cover mixed run states,
+provenance links/time formatting, manual/legacy labels, reactivation ordering,
+explicit host order, private visibility and unchanged original records.
+
+Provenance/order verification passed the complete 258-test Python suite and all
+35 JavaScript tests, with five existing dependency deprecation warnings.
+`git diff --check` passed. No staging, commit, push, deployment or live database
+write was performed. Full browser/assistive-technology review remains manual.
+
+
+## Host-only, saved-value AI analysis export
+
+Export Analysis is a read-only authenticated GET scoped to both gathering and
+analysis ID. A coherent SQLite read transaction selects current saved themes and
+private notes for exactly that run. Save private notes retains its independent
+revision-protected persistence action; exporting never submits browser edits or
+changes approval/publication. All associated remaining themes are included,
+including archives and approved/published themes from inactive runs, in saved
+host order. Coverage reuses the deterministic recorded-snapshot calculation;
+historical unavailable coverage is never inferred from current questions.
+
+A standalone autoescaped Jinja document carries inline responsive/print CSS,
+no scripts or external resources, attachment/no-store headers and restrictive
+CSP (also embedded for offline viewing). RSVP data and host diagnostics are not
+queried. Explicit working-material/no-consensus labels accompany AI content.
+Local question numbers resolve through the existing gathering-scoped numbering.
+Saved downloads are private files outside application access control; this is
+not an immutable historical report or a recovery mechanism for deleted content.
+
+The existing native Intl helper adds the detected IANA timezone only to local
+export links. The server validates it using ZoneInfo and formats system UTC
+values for the script-free download, using an explicit America/New_York fallback
+when missing/invalid. No timezone preference is persisted. Offline timestamps
+remain in the selected zone; human-entered gathering schedules are unchanged.
+
+Model provenance was not previously recorded. An additive repeatable
+analysis_run_models table captures the configured requested model at new-run
+creation. Existing runs remain honestly unknown; no inference or historical
+rewrite occurs. Eligible run deletion also removes its model metadata. The
+identifier is not proof of the actual model weights or response fingerprint.
+Before schema work, backup backups/common-ground-20261027T200631Z.db was created
+and independently checked for SQLite integrity and foreign-key validity. Schema
+verification uses isolated copies; no running database/service is modified.
+
+Regression tests cover saved notes and status preservation, complete export
+fields, scoped isolation, escaping, archive/inactive status, legacy blanks,
+authentication/ownership, model persistence, timezone/DST/fallback, standalone
+resources, migration repeatability and browser export-link handling. Browser
+print pagination and assistive-technology review remain manual checks.
+
+Export verification passed the full **277-test Python suite** and all **39
+JavaScript tests**, with five existing FastAPI/Starlette deprecation warnings.
+`git diff --check` passed. Applying the migration twice on an isolated copy of
+the verified backup preserved every original table record, passed integrity/FK
+checks and left historical model metadata empty. No staging, commit, push,
+deployment or running-database migration was performed.
+
+## Completed-work local checkpoint — October 27, 2026
+
+Reviewed all pending source, tests and documentation for facilitation notes,
+evidence-aware generation instructions, snapshot coverage, independent analysis
+controls, provenance/ordering and the host-only saved-value HTML export. No
+application behavior changed during checkpoint preparation. Full suites passed
+again: 277 Python tests (five existing FastAPI/Starlette deprecation warnings)
+and 39 JavaScript tests. Diff whitespace checks passed. Fresh backup
+backups/common-ground-20261027T202253Z.db passed integrity and foreign-key checks.
+Source-only staging excludes databases/backups, environment files, credentials,
+model files and generated artifacts.
+
+The local checkpoint is Complete AI facilitation, analysis management, and
+reporting. Earlier uncommitted status statements are historical task records,
+superseded by this checkpoint. Deployment status is unchanged. No new-tab report
+feature, production change, push or deployment is included. Existing semantic
+AI limitations and manual browser print/accessibility checks remain outstanding.

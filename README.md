@@ -94,8 +94,9 @@ Operate Ollama without cloud inference or forwarding proxies; the application
 cannot audit the behavior of an operator-controlled inference server. This app does not change WSL or Ollama service settings.
 
 Requests use structured JSON output with required titles, descriptions (up to 1,000
-characters), and question IDs, a bounded 1,600-token output budget with thinking
-disabled, a 5-second connection timeout and a 45-second network-operation timeout. Connection/model errors, timeouts and invalid output show a retry message while preserving questions. Successful generation saves new private drafts in SQLite and redirects to Manage gathering.
+characters), gathering-local question IDs and private facilitation notes, a bounded
+4,800-token output budget with thinking disabled, a 5-second connection timeout
+and a 90-second network-operation timeout. Connection/model errors, timeouts and invalid output show a retry message while preserving questions. Successful generation saves new private drafts in SQLite and redirects to Manage gathering.
 Reloading the page or restarting the app preserves them. A failed request saves no
 partial suggestions and preserves existing themes. Tests mock Ollama and require no live model.
 
@@ -184,8 +185,8 @@ single-use form keys. Repeated submissions return 409 without creating more draf
 or repeating inference. Other actions check a revision counter; stale forms return
 409 rather than overwriting later work. Reload Manage gathering to review current
 content and obtain a fresh form. A new intentional generation appends drafts and
-applies the selected Archive/Keep/Delete choice to eligible previous AI drafts.
-Manual, approved, and published themes are preserved. Inference runs synchronously without holding a
+always leaves existing analyses and themes unchanged. Each intentional request
+creates a new private run; manage a run only through its own accordion controls. Inference runs synchronously without holding a
 SQLite write lock. If the process stops mid-generation, its request key stays
 consumed; reload and explicitly retry. Request receipts are retained to prevent
 replay; automatic cleanup is not implemented.
@@ -210,10 +211,11 @@ theme row to edit, review original citations, approve, publish, move, or delete 
 permitted by its state. Editing still removes approval/publication. Move actions
 retain the gathering-wide ordering used on the public page.
 
-**AI analysis history** groups new suggestions by explicit run ID, newest first.
+**AI analysis history** groups suggestions by explicit run ID: active runs first
+(newest first), then inactive runs (newest first).
 Each native disclosure header shows generation time, input question count, original
-number of generated themes, and current state counts. Only the newest run starts
-open; individual themes start collapsed with title, status, and a description
+number of generated themes, and current state counts. Only the first run in this
+order starts open; individual themes start collapsed with title, status, and a description
 preview. Approved/published themes remain in Current Themes; history retains their
 status and a link to the current editor. Timestamps use an explicit English
 12-hour format in your browser's detected timezone; without JavaScript they show the explicitly labeled
@@ -221,21 +223,34 @@ America/New_York prototype fallback (see Timezone handling below).
 All disclosures and modifying forms work without JavaScript. Links can also be
 opened by manually expanding the destination disclosure without JavaScript.
 
-Before generating, choose how to handle previous unapproved AI drafts:
+**New AI Analysis** contains only **Suggest Discussion Themes** and a short
+explanation. Each intentional request creates a new private analysis; there are
+no archive/keep/delete choices and no automatic changes to previous runs or themes.
+Old browser forms that still send the removed options cannot trigger those actions.
+Single-use generation keys still prevent double-submit/replay.
 
-- **Archive** (default): keep the original records and citations but make them
-  inactive. Open the old run and use **Restore draft** before editing or approving.
-- **Keep**: leave previous drafts active alongside the new analysis.
-- **Delete**: permanently remove previous AI drafts, including archived ones,
-  only after checking the explicit confirmation box. Questions remain intact.
+Manage each run independently inside its accordion:
 
-These choices never affect manual, approved, or published themes, or drafts that
-changed while inference was running. They take effect atomically only when the
-new analysis saves successfully. Failed analyses keep earlier drafts unchanged
-and appear as failed runs; an interrupted request may remain marked in progress
-or interrupted. Explicitly start a fresh analysis to retry. Existing single-use
-request keys and theme revision checks continue to reject duplicate/stale forms.
-Save/Approve errors reopen the affected theme and run and show feedback nearby.
+- **Make inactive** reversibly marks that run inactive. Its unapproved AI drafts
+  cannot be edited or approved until **Reactivate**; private notes remain editable.
+  No theme text, individual archive flag, source citation or publication state is
+  changed. Approved/published themes remain visible in Current Themes and publicly
+  according to their existing status.
+- **Reactivate** re-enables that run's drafts. It preserves pre-existing individual
+  theme archives; those still need their existing Restore draft action.
+- **Delete** requires the explicit confirmation checkbox and permanently removes
+  that run and its unapproved AI drafts, including private notes and dependent run
+  snapshots/associations. Runs containing approved, published or manual themes
+  cannot be deleted; make them inactive instead. Participant submissions and all
+  other runs/themes/citations are untouched. The generation receipt remains to
+  prevent replay.
+
+Signed, session/gathering/run-scoped action keys detect stale run, theme and notes
+revisions. Invalid/stale actions preserve all records, reopen the affected run and
+show nearby feedback. Deleting a still-running analysis discards its later model
+response rather than recreating it; it does not interrupt the model server request.
+Failed runs can also be managed independently. No historical drafts are implicitly
+archived, deleted, restored or regenerated by a new analysis.
 
 Back up and verify SQLite before starting this version: the additive migration
 introduces `analysis_runs`, `theme_analysis_runs`, and `archived_themes`. Original
@@ -253,7 +268,7 @@ Every system timestamp uses a shared formatter, including analysis start/finish 
 theme Created/Updated dates. The browser detects its IANA timezone with
 `Intl.DateTimeFormat().resolvedOptions().timeZone`; no Docker/container timezone,
 server timezone, stored preference, or assumption about a user's location is used.
-No detected timezone is sent to the server.
+Normal page timestamp formatting stays in the browser. Analysis download links send the detected IANA timezone to the authenticated export route so the script-free document can be formatted before download; it is not stored as a preference.
 
 Dates display in an explicit English 12-hour format such as
 **Oct 27, 2026 · 1:22 PM EDT**. Native Intl applies the selected zone's daylight-saving
@@ -304,9 +319,9 @@ is additive. Preparing the checkpoint does not update an already running service
 2. Sign in as host, manage the gathering, and verify the original questions and
    CSV exports. Generate an AI analysis and open one theme to review its description
    and local-numbered source questions.
-3. Generate another analysis with the default Archive choice. Show the newest run
-   open, older run collapsed, and Restore an older archived draft. Keep and confirmed
-   Delete are alternative choices, not automatic cleanup of approved themes.
+3. Generate another analysis and show that the previous run is unchanged and
+   collapsed. Make a run inactive, Reactivate it, and demonstrate confirmed Delete
+   only on a disposable run without approved/published themes.
 4. Edit a theme, approve it, and check it remains private. Publish it and show the
    curated public topic. Return to Current Themes to find approved/published content
    independently of its original run. Editing published text makes it private again.
@@ -331,7 +346,7 @@ and Back to Host dashboard.
 | --- | --- | --- |
 | Gathering (default) | `/host/gatherings/1?tab=gathering` | Details; collapsible agenda and resource management including removal; a separated Gathering Status section for Cancel/Restore at the bottom |
 | Participants | `/host/gatherings/1?tab=participants` | Gathering-scoped RSVP names/count, anonymous numbered questions, both CSV exports |
-| Discussion Themes | `/host/gatherings/1?tab=themes` | Existing manual themes, analyses, nested accordions, citations, archive/keep/confirmed delete, restore, edits, approval, publication, unpublishing and ordering |
+| Discussion Themes | `/host/gatherings/1?tab=themes` | Existing manual themes, analyses, nested accordions, citations, run Make inactive/Reactivate/confirmed Delete, legacy individual archives, edits, approval, publication, unpublishing and ordering |
 
 Tabs are ordinary navigation links with `aria-current="page"`, not scripted ARIA
 tab widgets. They work without JavaScript, support browser Back/Forward and wrap
@@ -376,3 +391,169 @@ verification. The reviewed three-tab implementation is saved by the local checkp
 Three-view regressions also verify authorized legacy Administration redirects,
 old form submissions, Gathering Status placement and error feedback, resource
 removal returning to resource management, and preservation of submissions/themes.
+
+## Phase 5: Private facilitation notes and question coverage
+
+All new controls stay in **Discussion Themes**. New AI analyses propose three
+host-private fields inside each theme's existing accordion:
+
+- **Shared concerns:** 1–3 sentences about related issues in that theme's citations,
+  without asserting consensus.
+- **Different perspectives:** 1–3 sentences about supported tensions, tradeoffs or
+  priorities; when disagreement is not supported, explicitly say evidence is
+  insufficient instead of inventing a conflict.
+- **Suggested discussion questions:** 2–3 distinct, neutral, open-ended prompts
+  based on the same cited contributions.
+
+These are **AI suggestions, not findings or community decisions**. Review them
+against the original cited questions. All three fields are editable. **Save private
+notes** saves only notes: it does not change public title/description, theme
+revision, approval or publication. The ordinary public-text **Save as draft** still
+requires reapproval/republication. Notes have their own optimistic revision check;
+a stale notes form returns 409 with the affected editor open and entered text
+retained. Their update time uses the existing browser-local formatter.
+
+Generated prose fields are limited to 1,000 characters and use the existing
+1–3-sentence heuristic; generated prompts are 2–3 nonempty distinct strings of at
+most 300 characters. Missing/malformed notes reject the whole generation batch.
+Host working drafts may be blank, use prose up to 2,000 characters per field, and
+up to three prompt lines of 500 characters each. Create a manual theme normally,
+then enter its notes without Ollama. Legacy AI themes show **Not generated** and
+blank fields until the host writes notes; nothing is regenerated automatically.
+The original AI note proposal is retained privately, separately from current edits.
+
+Notes persist through approving, publishing, unpublishing, archiving, restoring,
+public-text edits, and restart. Archived themes permit private-note work without
+restoring public editing. Notes remain private even on a published theme; public
+queries/rendering never include them or append them to a description. Explicitly
+deleting a draft also removes that draft's dependent notes. Generation never modifies earlier drafts or their notes. Run actions reject stale
+forms after public theme or private-note edits.
+
+Each new analysis records the exact input question IDs and their local numbers
+before calling Ollama. **Question coverage** within that run displays the recorded
+input count, distinct questions cited by its remaining saved themes, and the
+number not cited. Open **Review uncited original questions** for the original text
+and gathering-local numbers. Repeated citations count once; other runs, new
+questions arriving during/after inference, and unrelated published themes do not
+inflate coverage. Archived/approved/published themes within the run still count.
+Deleting a theme can reduce its run's citation coverage because counts reflect
+remaining saved source associations, not an immutable report of deleted output.
+
+Old runs with no recorded ID snapshot show **Coverage unavailable**. Failed,
+pending or inconsistent snapshots also show an explicit unavailable state; the app
+does not guess from current questions. Coverage is calculated deterministically,
+never by AI, and is not evidence of representativeness, agreement or adequate
+discussion. Snapshot IDs/numbers do not duplicate participant text or establish
+historical edits to participant text; participant-question editing is not provided.
+
+Before running this version against an existing database, create and verify a
+backup using the existing scripts. The additive, repeatable migration adds
+`theme_facilitation_notes`, `analysis_run_snapshots`, and `analysis_run_questions`.
+It does not rewrite legacy themes, statuses, citations, runs, or contributions.
+No external model service, new top-level tab, dependency, automatic retry or
+historical regeneration is introduced. Prompt constraints and structural checks
+cannot prove faithful grounding or neutrality; host review remains essential.
+
+The larger notes contract uses a 4,800-token generation ceiling and a 90-second
+read/network timeout (5-second connect timeout), with `think: false`, temperature
+0.2, local-endpoint restrictions and truncation rejection unchanged. The synthetic
+local probe completed one theme with two prompts in 10.02 seconds (9.91 seconds
+inference, 210 output tokens), without truncation. This is one synthetic case,
+not a latency guarantee for larger gatherings or five-theme outputs. Longer runs
+may time out or hit the token ceiling; failures preserve existing work and require
+an explicit retry. No participant/model text is logged by diagnostics.
+
+Phase 5 validation: **239 Python tests and 35 JavaScript tests passed**, with five
+existing dependency deprecation warnings. `git diff --check` passed. The migration
+was tested twice on a verified backup copy; all original records remained unchanged.
+No running database/service was updated, and changes remain uncommitted.
+
+## Independent run controls: migration and preservation
+
+Before starting this version, use the existing backup/verification workflow. The
+additive `analysis_run_states` table holds active/inactive state and its revision.
+Legacy runs default to active without changing any existing row or archive flag.
+The old `analysis_runs.draft_action` column is preserved for SQLite compatibility
+and historical data only: new rows use `keep`, and generation never processes it.
+The old generation-side previous-draft snapshot/Archive/Delete processing and
+form options have been removed. Existing legacy individual draft archive/restore
+controls remain available; run state is separate.
+
+Run-control actions use the existing host authorization, CSRF, no-store rendering,
+gathering scope and browser-local timestamps. Protected-run deletion is rejected
+as a whole, not partially applied. Confirmed deletion removes only the selected
+run and its unapproved AI themes; it never removes original questions/RSVPs or
+citations of surviving themes. Pending inference may finish in the background
+after deletion, but its result cannot restore the deleted run. There is no new
+Ollama prompt/model behavior, dependency, top-level tab or public-page control.
+
+Independent-run validation: **255 Python tests and 35 JavaScript tests passed**,
+with five existing dependency deprecation warnings. Diff checks passed. The
+migration was verified twice on a copy of the independently validated backup
+`backups/common-ground-20261027T193245Z.db`; all original records remained unchanged.
+No running database/service was updated. Changes remain unstaged and uncommitted.
+
+In **Current Themes**, AI themes show **From Analysis #…**, the originating
+analysis's creation time in the existing browser-local format, and **Analysis
+inactive** when applicable. The analysis link opens its original history accordion
+with JavaScript; without it, follow the link and expand the native disclosure.
+Manual themes are labeled **Manually created**. Legacy AI themes without recorded
+run provenance say it is unavailable and show the theme's creation time instead.
+These are host-only display details: history sorting never changes explicit host
+theme order, approval, publication, original timestamps or citations. Current
+Themes and public topic order continue to use the host's saved position/id order.
+
+
+## Private AI Analysis Export
+
+Each analysis accordion has **Export Analysis**, which downloads a self-contained,
+print-friendly HTML document. **Save theme edits and Save private notes before
+exporting**: the download reads current saved database values, never unsaved form
+fields. Save private notes remains a separate persistence action.
+
+Exports include gathering schedule/location, run metadata, all remaining themes
+associated with that run (including archived drafts and approved/published themes
+from inactive runs), saved descriptions and facilitation notes, locally numbered
+original citations, and reliable run-snapshot coverage/uncited questions. No
+archive filter is applied. Unrelated runs, RSVPs, credentials and diagnostics are
+excluded. AI suggestions are labeled private host working material, not consensus.
+Historical missing notes and unavailable coverage are explicitly identified.
+
+The authenticated, gathering-scoped download uses escaped HTML, no scripts or
+external resources, restrictive security headers and no-store caching. Open the
+downloaded file and use the browser's Print command to print or save as PDF.
+Downloaded copies contain private notes: protect them when storing or sharing.
+This is a snapshot of remaining saved content, not recovery of deleted themes or
+an immutable record of original model output.
+
+The workspace passes the browser-detected timezone in the download URL. Without
+JavaScript or a supported timezone, export timestamps use visibly labeled
+America/New_York. The downloaded document retains that timezone when moved to
+another device. Gathering schedule text is preserved as entered. New runs record
+the requested model identifier; historical unknown models are not guessed from
+current settings. This identifier is not a model-weights fingerprint.
+
+Before startup, follow the existing verified-backup workflow. The additive,
+repeatable `analysis_run_models` table records model metadata for new runs only;
+it neither backfills old runs nor changes themes, notes, approval or publication.
+
+Export validation: **277 Python tests and 39 JavaScript tests passed**, with five
+existing FastAPI/Starlette deprecation warnings. `git diff --check` passed. The
+schema was applied twice to an isolated copy of the verified backup above;
+all original records were preserved, integrity/foreign-key checks passed, and
+no legacy model metadata was inferred. Browser print pagination and screen-reader
+review remain manual; no running database/service was updated.
+
+## Completed-work checkpoint verification
+
+On October 27, 2026, the complete suites passed again: **277 Python tests** and
+**39 JavaScript tests**, with five existing FastAPI/Starlette deprecation warnings.
+`git diff --check` passed. A fresh backup,
+`backups/common-ground-20261027T202253Z.db`, passed SQLite integrity and foreign-key
+checks and remains outside Git. The local checkpoint is named
+`Complete AI facilitation, analysis management, and reporting`.
+Earlier “uncommitted” notes describe verification at those earlier task stages;
+this checkpoint supersedes that source-control status. No deployment or live
+schema migration is included. Download exports remain the implemented report
+workflow; no new-tab report feature was added. Semantic AI grounding and browser
+print/accessibility reviews retain the limitations described above.

@@ -64,8 +64,6 @@
 .analysis-run { border: 1px solid #607a6e; border-radius: 12px; margin-block: 16px; overflow-wrap: anywhere; }
 .host-workspace .analysis-run > summary { padding: 16px; }
 .analysis-run > p, #analysis-legacy > .theme-item { margin: 16px; }
-.host-workspace .draft-choice { display: flex; align-items: center; gap: 12px; min-height: 44px; }
-.host-workspace .draft-choice input { flex: 0 0 24px; width: 24px; margin: 0; accent-color: #1c604e; }
 
 /* Expanded themes show their description only in the review textarea. */
 .theme-item[open] > summary > .theme-preview { display: none; }
@@ -95,3 +93,10 @@
   .workspace-schedule { display: block; }
   .workspace-schedule div + div { margin-top: 12px; }
 }
+
+/* Private working notes and deterministic coverage stay within theme history. */
+.facilitation-notes, .analysis-coverage { border-top: 1px solid #607a6e; margin-top: 24px; padding-top: 16px; }
+.facilitation-notes h4, .analysis-coverage h4 { margin-top: 0; }
+
+/* Provenance remains visible in collapsed Current Themes rows. */
+.theme-provenance { display: block; margin-top: 6px; color: #43554f; font-size: 1rem; font-weight: 400; }

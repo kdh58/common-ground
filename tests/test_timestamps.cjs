@@ -102,3 +102,30 @@ test('missing Intl formatter preserves readable server fallback', () => {
     Intl.DateTimeFormat = original;
   }
 });
+
+for (const name of ['America/New_York', 'America/Los_Angeles', 'Asia/Tokyo']) {
+  test(`analysis download receives detected timezone ${name}`, () => {
+    const { localizeAnalysisExportLinks } = require('../app/static/timestamps.js');
+    const link = { href: '/host/gatherings/7/analyses/5/export.html',
+      getAttribute() { return this.href; }, setAttribute(key, value) { assert.equal(key, 'href'); this.href = value; } };
+    const doc = { baseURI: 'http://localhost:8000/host/gatherings/7?tab=themes',
+      querySelectorAll(selector) { assert.equal(selector, 'a[data-analysis-export]'); return [link]; } };
+    localizeAnalysisExportLinks(doc, zone(name));
+    const url = new URL(link.href, doc.baseURI);
+    assert.equal(url.pathname, '/host/gatherings/7/analyses/5/export.html');
+    assert.equal(url.searchParams.get('timezone'), name);
+  });
+}
+
+test('analysis download keeps server fallback and never rewrites external links', () => {
+  const { localizeAnalysisExportLinks } = require('../app/static/timestamps.js');
+  const make = (href) => ({ href, getAttribute() { return this.href; }, setAttribute(_, value) { this.href = value; } });
+  const valid = make('/host/gatherings/1/analyses/2/export.html?timezone=America%2FLos_Angeles');
+  const external = make('https://external.example/host/gatherings/1/analyses/2/export.html');
+  const other = make('/gatherings/1');
+  const doc = { baseURI: 'http://localhost:8000/host', querySelectorAll: () => [valid, external, other] };
+  localizeAnalysisExportLinks(doc, { timeZone: 'America/New_York', fallback: true });
+  assert.equal(valid.href, '/host/gatherings/1/analyses/2/export.html');
+  assert.equal(external.href, 'https://external.example/host/gatherings/1/analyses/2/export.html');
+  assert.equal(other.href, '/gatherings/1');
+});

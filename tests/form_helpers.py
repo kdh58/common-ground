@@ -13,3 +13,13 @@ def post(client, url, **kwargs):
         match = re.search(r'name="request_key" value="([^"]+)"', form[0] if form else '')
         data = {**data, 'request_key': match[1] if match else 'missing'}
     return client.post(url, data={**data, 'csrf_token': token}, **kwargs)
+
+
+def generated_notes():
+    """Complete synthetic structured response for tests unrelated to note validation."""
+    return {
+        'shared_concerns': 'The cited questions raise issues to explore together.',
+        'different_perspectives': 'There is insufficient evidence in the cited questions to infer disagreement.',
+        'discussion_questions': ['What issues raised here should be explored further?',
+                                 'What tradeoffs do the cited questions invite us to consider?'],
+    }

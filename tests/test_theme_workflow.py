@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main, theme_workflow
-from tests.form_helpers import post
+from tests.form_helpers import post, generated_notes
 
 
 @pytest.fixture
@@ -109,7 +109,7 @@ def test_ai_generation_scoped_persistent_append_only(client, monkeypatch):
     seen = []
     def suggest(questions, base, model):
         seen.append(questions)
-        return [{'title': 'AI suggestion', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [questions[0]['id']]}]
+        return [{'facilitation_notes': generated_notes(), 'title': 'AI suggestion', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [questions[0]['id']]}]
     monkeypatch.setattr(main, 'suggest_themes', suggest)
     request_key = key(client, 'generate')
     assert post(client, '/host/gatherings/1/themes', data={'request_key': request_key}).status_code == 200
@@ -122,7 +122,7 @@ def test_ai_generation_scoped_persistent_append_only(client, monkeypatch):
     assert 'AI suggestion' not in public(client)
     assert post(client, '/host/gatherings/1/themes', data={'request_key': request_key}).status_code == 409
     assert len(seen) == 1 and len(rows()) == 3
-    assert post(client, '/host/gatherings/1/themes', data={'draft_action': 'keep'}).status_code == 200
+    assert post(client, '/host/gatherings/1/themes').status_code == 200
     assert len(rows()) == 4 and rows()[:2] == before
     assert act(client, 'edit', ai, title='Host interpretation', description='Human correction').status_code == 200
     assert rows()[2]['ai_original_title'] == 'AI suggestion'
@@ -150,7 +150,7 @@ def test_ai_failures_save_nothing_preserve_existing(client, monkeypatch, case):
         if case == 'unavailable':
             raise httpx.ConnectError('PRIVATE error')
         title = 'Bad\x00control' if case == 'unsafe-control' else 'Topic'
-        content = json.dumps({'themes': [{'title': title, 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [999 if case == 'invalid-reference' else 1]}]})
+        content = json.dumps({'themes': [{'facilitation_notes': generated_notes(), 'title': title, 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [999 if case == 'invalid-reference' else 1]}]})
         body = {'done': True, 'message': {'content': 'invalid json' if case == 'malformed' else content}}
         if case == 'truncated':
             body['done_reason'] = 'length'
@@ -307,7 +307,7 @@ def test_generation_claim_prevents_concurrent_duplicate(client, monkeypatch):
         calls.append(1)
         started.set()
         assert finish.wait(10)
-        return [{'title': 'Only once', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1]}]
+        return [{'facilitation_notes': generated_notes(), 'title': 'Only once', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1]}]
     monkeypatch.setattr(main, 'suggest_themes', suggest)
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(post, client, '/host/gatherings/1/themes', data={'request_key': request_key})
@@ -352,8 +352,8 @@ def test_generation_batch_is_atomic_and_sources_are_scoped(client, monkeypatch):
     create(client)
     before = rows()
     monkeypatch.setattr(main, 'suggest_themes', lambda *args: [
-        {'title': 'Valid first', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1]},
-        {'title': 'Invalid second', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [2]},
+        {'facilitation_notes': generated_notes(), 'title': 'Valid first', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1]},
+        {'facilitation_notes': generated_notes(), 'title': 'Invalid second', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [2]},
     ])
     assert post(client, '/host/gatherings/1/themes').status_code == 200
     assert rows() == before
@@ -417,7 +417,7 @@ def test_generated_description_round_trip_and_publication_rules(client, monkeypa
             return original(self, url, **kwargs)
         sent = json.loads(kwargs['json']['messages'][1]['content'])['untrusted_questions']
         assert [q['id'] for q in sent] == [1, 2]
-        return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps({'themes': [{
+        return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps({'themes': [{'facilitation_notes': generated_notes(),
             'title': 'Evening access and staffing', 'description': description, 'question_ids': [1, 2],
         }]})}}, request=httpx.Request('POST', url))
     monkeypatch.setattr(httpx.Client, 'post', ollama)
@@ -459,8 +459,8 @@ def test_invalid_description_batch_preserves_saved_topics(client, monkeypatch, b
         if not str(url).endswith('/api/chat'):
             return original(self, url, **kwargs)
         return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps({'themes': [
-            {'title': 'Valid topic', 'description': 'A valid description.', 'question_ids': [1]},
-            {'title': 'Invalid topic', 'description': bad_description, 'question_ids': [1]},
+            {'facilitation_notes': generated_notes(), 'title': 'Valid topic', 'description': 'A valid description.', 'question_ids': [1]},
+            {'facilitation_notes': generated_notes(), 'title': 'Invalid topic', 'description': bad_description, 'question_ids': [1]},
         ]})}}, request=httpx.Request('POST', url))
     monkeypatch.setattr(httpx.Client, 'post', ollama)
     assert post(client, '/host/gatherings/1/themes').status_code == 200
@@ -473,7 +473,7 @@ def test_generation_route_rejects_invalid_descriptions_before_storage(client, mo
     post(client, '/gatherings/1/questions', data={'question': 'Could evening hours help access?'})
     create(client)
     before = rows()
-    suggestion = {'title': 'Title only', 'question_ids': [1]}
+    suggestion = {'facilitation_notes': generated_notes(), 'title': 'Title only', 'question_ids': [1]}
     if description is not None:
         suggestion['description'] = description
     monkeypatch.setattr(main, 'suggest_themes', lambda *_: [suggestion])

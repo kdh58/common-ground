@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from app import main, theme_workflow
-from tests.form_helpers import post
+from tests.form_helpers import post, generated_notes
 from tests.test_theme_workflow import client, login, create, rows, key
 
 
@@ -48,7 +48,7 @@ def seed(client, monkeypatch):
         ])
     assert create(client, 'MANUAL PRIVATE TOPIC').status_code == 200
     post(client, '/host/gatherings/1/resources', data={'title': 'Reading resource', 'url': 'https://example.org/reading'})
-    monkeypatch.setattr(main, 'suggest_themes', lambda *_: [{
+    monkeypatch.setattr(main, 'suggest_themes', lambda *_: [{'facilitation_notes': generated_notes(),
         'title': 'AI PRIVATE TOPIC', 'description': 'Questions explore evening access and staff workload.', 'question_ids': [1, 2],
     }])
     assert post(client, '/host/gatherings/1/themes').status_code == 200
@@ -88,7 +88,8 @@ def test_all_three_tabs_navigation_contents_and_readonly_gets(client, monkeypatc
     assert 'data-local-time' in pages['participants']
     assert 'Suggest Discussion Themes' in pages['themes'] and 'AI PRIVATE TOPIC' in pages['themes']
     assert 'Original question #1: PRIVATE EVENING QUESTION' in pages['themes']
-    assert 'Archive previous unapproved AI drafts' in pages['themes'] and 'id="analysis-1"' in pages['themes']
+    assert 'Make inactive' in pages['themes'] and 'id="analysis-1"' in pages['themes']
+    assert 'Previous unapproved AI drafts' not in pages['themes']
     assert 'Cancel gathering' in pages['gathering'] and 'Remove resource' in pages['gathering']
     for tab in ('gathering', 'themes'):
         assert 'PRIVATE RSVP NAME' not in pages[tab]
@@ -143,8 +144,8 @@ def test_mutation_redirects_return_to_the_owner_tab(client, monkeypatch, suffix,
     ('resources', {'title': 'Unsaved resource'}, 'gathering', 422),
     ('status', {'status': 'invalid'}, 'gathering', 400),
     ('status', {}, 'gathering', 422),
-    ('themes', {'draft_action': 'delete'}, 'themes', 400),
-    ('themes', {'draft_action': 'bad'}, 'themes', 400),
+    ('themes', {'request_key': 'invalid-key'}, 'themes', 400),
+    ('themes', {'request_key': ''}, 'themes', 422),
 ])
 def test_validation_stays_on_tab_preserves_data_and_records(client, monkeypatch, suffix, data, expected, status):
     seed(client, monkeypatch)
@@ -188,7 +189,7 @@ def test_manual_and_theme_errors_stay_on_themes_and_preserve_edit_text(client, m
 
 def test_generation_approval_publication_archive_and_exports(client, monkeypatch):
     seed(client, monkeypatch)
-    generated = post(client, '/host/gatherings/1/themes?tab=themes', data={'draft_action': 'keep'}, follow_redirects=False)
+    generated = post(client, '/host/gatherings/1/themes?tab=themes', follow_redirects=False)
     redirect_tab(generated, 'themes')
     theme = rows()[-1]
     for action in ('archive', 'restore', 'approve', 'publish', 'unpublish'):

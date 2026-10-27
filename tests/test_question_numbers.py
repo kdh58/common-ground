@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import main, theme_workflow
 from app.questions import load_questions
-from tests.form_helpers import post
+from tests.form_helpers import post, generated_notes
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_local_numbers_everywhere_preserve_identifiers(client, monkeypatch):
     captured = []
     def suggest(questions, *_):
         captured.extend(questions)
-        return [{'title': 'Generated', 'description': 'The questions raise a third concern.', 'question_ids': [3]}]
+        return [{'facilitation_notes': generated_notes(), 'title': 'Generated', 'description': 'The questions raise a third concern.', 'question_ids': [3]}]
     monkeypatch.setattr(main, 'suggest_themes', suggest)
     assert post(client, '/host/gatherings/1/themes').status_code == 200
     assert [q['id'] for q in captured] == [1, 2, 3]

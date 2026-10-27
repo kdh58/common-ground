@@ -1,4 +1,4 @@
-from tests.form_helpers import post
+from tests.form_helpers import post, generated_notes
 import json
 
 import httpx
@@ -25,7 +25,7 @@ def mock_ollama(monkeypatch, body=None, error=None, status=200, inspect=None):
     def post(self, url, **kwargs):
         assert url == main.OLLAMA_BASE_URL.rstrip('/') + '/api/chat'
         assert self.timeout.connect == 5
-        assert self.timeout.read == 45
+        assert self.timeout.read == 90
         if inspect:
             inspect(kwargs['json'])
         if error:
@@ -68,7 +68,7 @@ def test_scoped_drafts(client, monkeypatch):
         if str(url).endswith('/api/chat'):
             inspect(kwargs['json'])
             return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps(
-                {'themes': [{'title': '<b>Discussion</b>', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1]}]})}},
+                {'themes': [{'facilitation_notes': generated_notes(), 'title': '<b>Discussion</b>', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1]}]})}},
                 request=httpx.Request('POST', url))
         return original_post(self, url, **kwargs)
     monkeypatch.setattr(httpx.Client, 'post', ollama_post)
@@ -91,8 +91,8 @@ def test_scoped_drafts(client, monkeypatch):
     ({'done': False}, 200, None),
     ({'done': True, 'message': {'content': 'not JSON'}}, 200, None),
     ({'done': True, 'message': {'content': '{"themes": []}'}}, 200, None),
-    ({'done': True, 'message': {'content': '{"themes": [{"title": "Topic", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [2]}]}'}}, 200, None),
-    ({'done': True, 'message': {'content': '{"themes": [{"title": "Topic", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [true]}]}'}}, 200, None),
+    ({'done': True, 'message': {'content': '{"themes": [{"title": "Topic", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [2], "facilitation_notes": {"shared_concerns": "The cited questions raise issues to explore together.", "different_perspectives": "There is insufficient evidence in the cited questions to infer disagreement.", "discussion_questions": ["What issues raised here should be explored further?", "What tradeoffs do the cited questions invite us to consider?"]}}]}'}}, 200, None),
+    ({'done': True, 'message': {'content': '{"themes": [{"title": "Topic", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [true], "facilitation_notes": {"shared_concerns": "The cited questions raise issues to explore together.", "different_perspectives": "There is insufficient evidence in the cited questions to infer disagreement.", "discussion_questions": ["What issues raised here should be explored further?", "What tradeoffs do the cited questions invite us to consider?"]}}]}'}}, 200, None),
     ({}, 500, None),
     ({}, 404, None),
     (None, 200, httpx.ConnectError('unreachable')),
@@ -122,9 +122,9 @@ def test_failure_page_preserves_questions(client, monkeypatch):
     ('{"themes": [', {'done_reason': 'length'}, 'truncated_output'),
     ('PRIVATE MODEL TEXT', {'done_reason': 'stop'}, 'malformed_json'),
     ('{"themes": []}', {}, 'schema_mismatch'),
-    ('{"themes": [{"title": "PRIVATE MODEL TEXT", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [true]}]}',
+    ('{"themes": [{"title": "PRIVATE MODEL TEXT", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [true], "facilitation_notes": {"shared_concerns": "The cited questions raise issues to explore together.", "different_perspectives": "There is insufficient evidence in the cited questions to infer disagreement.", "discussion_questions": ["What issues raised here should be explored further?", "What tradeoffs do the cited questions invite us to consider?"]}}]}',
      {}, 'schema_mismatch'),
-    ('{"themes": [{"title": "PRIVATE MODEL TEXT", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [99]}]}',
+    ('{"themes": [{"title": "PRIVATE MODEL TEXT", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [99], "facilitation_notes": {"shared_concerns": "The cited questions raise issues to explore together.", "different_perspectives": "There is insufficient evidence in the cited questions to infer disagreement.", "discussion_questions": ["What issues raised here should be explored further?", "What tradeoffs do the cited questions invite us to consider?"]}}]}',
      {}, 'invalid_question_references'),
     ('null', {}, 'schema_mismatch'),
 ])
@@ -155,11 +155,11 @@ def test_diagnostics_disabled_by_default(monkeypatch, caplog):
 def test_three_questions_request_and_validation(monkeypatch):
     questions = [{'id': i, 'question': 'Fictional question?'} for i in (1, 2, 3)]
     def inspect(payload):
-        assert payload['options'] == {'temperature': 0.2, 'num_predict': 1600}
+        assert payload['options'] == {'temperature': 0.2, 'num_predict': 4800}
         assert payload['stream'] is False
         assert payload['think'] is False
         assert json.loads(payload['messages'][1]['content'])['untrusted_questions'] == questions
-    expected = [{'title': 'Discussion', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1, 2, 3]}]
+    expected = [{'facilitation_notes': generated_notes(), 'title': 'Discussion', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1, 2, 3]}]
     mock_ollama(monkeypatch, {'done': True, 'done_reason': 'stop',
                              'message': {'content': json.dumps({'themes': expected})}},
                 inspect=inspect)
@@ -169,7 +169,7 @@ def test_three_questions_request_and_validation(monkeypatch):
 @pytest.mark.parametrize('content', [
     '',
     '{"themes": [',
-    '{"themes": [{"title": "Discussion", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [1]}]}',
+    '{"themes": [{"title": "Discussion", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [1], "facilitation_notes": {"shared_concerns": "The cited questions raise issues to explore together.", "different_perspectives": "There is insufficient evidence in the cited questions to infer disagreement.", "discussion_questions": ["What issues raised here should be explored further?", "What tradeoffs do the cited questions invite us to consider?"]}}]}',
 ])
 def test_length_termination_never_returns_drafts(monkeypatch, caplog, content):
     monkeypatch.setenv('CG_DEV_THEME_DIAGNOSTICS', '1')
@@ -190,7 +190,7 @@ def test_model_errors_do_not_leak_content(monkeypatch, caplog, status):
     mock_ollama(monkeypatch, {
         'error': 'PRIVATE MODEL ERROR WITH CREDENTIALS',
         'done': True, 'done_reason': 'stop',
-        'message': {'content': '{"themes": [{"title": "Discussion", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [1]}]}'},
+        'message': {'content': '{"themes": [{"title": "Discussion", "description": "Questions raise concerns about access and opportunities for discussion.", "question_ids": [1], "facilitation_notes": {"shared_concerns": "The cited questions raise issues to explore together.", "different_perspectives": "There is insufficient evidence in the cited questions to infer disagreement.", "discussion_questions": ["What issues raised here should be explored further?", "What tradeoffs do the cited questions invite us to consider?"]}}]}'},
     }, status=status)
     with pytest.raises(ThemeError) as caught:
         suggest_themes([{'id': 1, 'question': 'PRIVATE QUESTION'}],
@@ -205,12 +205,12 @@ def test_description_contract_and_grounded_prompt(monkeypatch):
         {'id': 1, 'question': 'Could evening workshops improve access for working neighbors?'},
         {'id': 2, 'question': 'How would evening hours affect staff workload and costs?'},
     ]
-    expected = [{'title': 'Evening access and staffing', 'description':
+    expected = [{'facilitation_notes': generated_notes(), 'title': 'Evening access and staffing', 'description':
         'The questions explore evening workshops as an opportunity to improve access for working neighbors. '
         'They also raise staffing workload and cost tradeoffs that would need discussion.', 'question_ids': [1, 2]}]
     def inspect(payload):
         schema = payload['format']['properties']['themes']['items']
-        assert set(schema['required']) == {'title', 'description', 'question_ids'}
+        assert set(schema['required']) == {'title', 'description', 'question_ids', 'facilitation_notes'}
         assert schema['properties']['description']['minLength'] == 1
         assert schema['properties']['description']['maxLength'] == 1000
         prompt = payload['messages'][0]['content']
@@ -222,32 +222,32 @@ def test_description_contract_and_grounded_prompt(monkeypatch):
             assert requirement in prompt
         assert json.loads(payload['messages'][1]['content'])['untrusted_questions'] == questions
         assert payload['model'] == main.OLLAMA_MODEL
-        assert payload['options'] == {'temperature': 0.2, 'num_predict': 1600}
+        assert payload['options'] == {'temperature': 0.2, 'num_predict': 4800}
     mock_ollama(monkeypatch, {'done': True, 'message': {'content': json.dumps({'themes': expected})}}, inspect=inspect)
     assert suggest_themes(questions, main.OLLAMA_BASE_URL, main.OLLAMA_MODEL) == expected
 
 
 @pytest.mark.parametrize('description', [None, '', '   ', 42, [], 'x' * 1001, 'Unsafe\x00text', 'Unsafe\x7ftext'])
 def test_invalid_generated_descriptions_rejected(monkeypatch, description):
-    theme = {'title': 'Access', 'description': description, 'question_ids': [1]}
+    theme = {'facilitation_notes': generated_notes(), 'title': 'Access', 'description': description, 'question_ids': [1]}
     mock_ollama(monkeypatch, {'done': True, 'message': {'content': json.dumps({'themes': [theme]})}})
     with pytest.raises(ThemeError, match='incomplete or invalid'):
         suggest_themes([{'id': 1, 'question': 'Evening workshops?'}], main.OLLAMA_BASE_URL, main.OLLAMA_MODEL)
 
 
 def test_missing_generated_description_rejected(monkeypatch):
-    theme = {'title': 'Access', 'question_ids': [1]}
+    theme = {'facilitation_notes': generated_notes(), 'title': 'Access', 'question_ids': [1]}
     mock_ollama(monkeypatch, {'done': True, 'message': {'content': json.dumps({'themes': [theme]})}})
     with pytest.raises(ThemeError, match='incomplete or invalid'):
         suggest_themes([{'id': 1, 'question': 'Evening workshops?'}], main.OLLAMA_BASE_URL, main.OLLAMA_MODEL)
 
 
 @pytest.mark.parametrize('second', [
-    {'title': ' ACCESS! ', 'description': 'A distinct description.', 'question_ids': [2]},
-    {'title': 'Another title', 'description': ' evening workshops could improve access! ', 'question_ids': [2]},
+    {'facilitation_notes': generated_notes(), 'title': ' ACCESS! ', 'description': 'A distinct description.', 'question_ids': [2]},
+    {'facilitation_notes': generated_notes(), 'title': 'Another title', 'description': ' evening workshops could improve access! ', 'question_ids': [2]},
 ])
 def test_duplicate_generated_topics_reject_entire_batch(monkeypatch, second):
-    themes = [{'title': 'Access', 'description': 'Evening workshops could improve access.', 'question_ids': [1]}, second]
+    themes = [{'facilitation_notes': generated_notes(), 'title': 'Access', 'description': 'Evening workshops could improve access.', 'question_ids': [1]}, second]
     mock_ollama(monkeypatch, {'done': True, 'message': {'content': json.dumps({'themes': themes})}})
     with pytest.raises(ThemeError, match='incomplete or invalid'):
         suggest_themes([{'id': 1, 'question': 'Workshops?'}, {'id': 2, 'question': 'Evening hours?'}],
@@ -256,7 +256,7 @@ def test_duplicate_generated_topics_reject_entire_batch(monkeypatch, second):
 
 @pytest.mark.parametrize('description', ['Access', ' ACCESS!!! ', 'One. Two. Three. Four.', '...'])
 def test_title_only_or_excess_sentences_rejected(monkeypatch, description):
-    theme = {'title': 'Access', 'description': description, 'question_ids': [1]}
+    theme = {'facilitation_notes': generated_notes(), 'title': 'Access', 'description': description, 'question_ids': [1]}
     mock_ollama(monkeypatch, {'done': True, 'message': {'content': json.dumps({'themes': [theme]})}})
     with pytest.raises(ThemeError):
         suggest_themes([{'id': 1, 'question': 'Could evening hours help access?'}], main.OLLAMA_BASE_URL, main.OLLAMA_MODEL)
@@ -268,7 +268,7 @@ def test_title_only_or_excess_sentences_rejected(monkeypatch, description):
     'The questions explore evening access. They also ask about staff workload. Costs are raised as a question.',
 ])
 def test_one_to_three_sentence_descriptions_preserved(monkeypatch, description):
-    theme = {'title': 'Evening access', 'description': description, 'question_ids': [1, 2]}
+    theme = {'facilitation_notes': generated_notes(), 'title': 'Evening access', 'description': description, 'question_ids': [1, 2]}
     mock_ollama(monkeypatch, {'done': True, 'message': {'content': json.dumps({'themes': [theme]})}})
     assert suggest_themes([
         {'id': 1, 'question': 'Could evening workshops improve access?'},

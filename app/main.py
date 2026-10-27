@@ -24,6 +24,8 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.analysis_export import load_analysis_export, export_timezone
+from app.facilitation import validate_generated_notes
 from app.timestamps import timestamp_display
 from app.questions import NUMBERED_QUESTIONS, load_questions
 from app.themes import ThemeError, suggest_themes, validate_generated_description
@@ -237,16 +239,17 @@ WORKSPACE_TABS = ('gathering', 'participants', 'themes')
 
 def workspace_action(request):
     """Only existing gathering mutations participate in workspace error rendering."""
-    match = re.fullmatch(r'/host/gatherings/(\d+)/(edit|agenda|status|resources(?:/\d+/(?:edit|remove))?|themes(?:/manual|/\d+/[a-z]+)?)', request.url.path)
+    match = re.fullmatch(r'/host/gatherings/(\d+)/(edit|agenda|status|resources(?:/\d+/(?:edit|remove))?|themes(?:/manual|/\d+/[a-z]+)?|analyses/\d+/(?:inactive|reactivate|delete))', request.url.path)
     if request.method != 'POST' or not match:
         return None
     gathering_id, suffix = match.groups()
     section = suffix.split('/')[0]
-    tab = 'themes' if section == 'themes' else 'gathering'
+    tab = 'themes' if section in ('themes', 'analyses') else 'gathering'
     parts = suffix.split('/')
     return {'id': int(gathering_id), 'tab': tab, 'section': section,
             'theme_id': int(parts[1]) if section == 'themes' and len(parts) == 3 else None,
             'action': parts[-1],
+            'run_id': int(parts[1]) if section == 'analyses' else None,
             'resource_id': int(parts[1]) if section == 'resources' and len(parts) == 3 else None}
 
 
@@ -260,7 +263,7 @@ def workspace_redirect(id, tab, section='', theme=None):
 
 
 def host_gathering_page(id, request, error="", error_theme=None, error_action="", submitted=None, status_code=200,
-                        tab=None, form_state=None, error_section='', error_resource=None, agenda_rows=None):
+                        tab=None, form_state=None, error_section='', error_resource=None, agenda_rows=None, error_run=None):
     require_admin(request)
     gathering = get_gathering(id)
     action = workspace_action(request)
@@ -282,8 +285,15 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
         open_theme = error_theme or int(request.query_params.get('theme', '0'))
     except ValueError:
         open_theme = None
+    try:
+        open_run = error_run or int(request.query_params.get('analysis', '0'))
+    except ValueError:
+        open_run = None
     # render initializes CSRF for a host's first page; normally login already did so.
     request.session.setdefault('csrf_token', secrets.token_urlsafe(32))
+    for run in workspace.get('analysis_runs', []):
+        run['action_key'] = URLSafeSerializer(SESSION_SECRET, salt='analysis-actions').dumps(
+            [id, run['id'], request.session['csrf_token'], run['action_version']])
     response = render("host_gathering.html", request, gathering=gathering,
                   questions=questions, rsvps=rsvps, themes=themes, error=error,
                   active_tab=active_tab, form_state=form_state or {},
@@ -291,6 +301,7 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
                   open_section=error_section or request.query_params.get('section', ''),
                   agenda_rows=agenda_rows if agenda_rows is not None else gathering['items'] + [{}],
                   open_theme=open_theme, error_theme=error_theme, error_action=error_action,
+                  open_run=open_run, error_run=error_run,
                   submitted=submitted, **workspace,
                   generation_key=theme_form_key(request, id, 'generate'),
                   manual_key=theme_form_key(request, id, 'manual'))
@@ -312,15 +323,10 @@ def host_gathering(id: int, request: Request):
 
 
 @app.post("/host/gatherings/{id}/themes")
-def gathering_themes(id: int, request: Request, request_key: str = Form(...),
-                     draft_action: str = Form('archive'), delete_confirmation: str = Form('')):
+def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
     require_admin(request)
     get_gathering(id)
     validate_theme_key(request, id, 'generate', request_key)
-    if draft_action not in ('archive', 'keep', 'delete'):
-        raise HTTPException(400, "Choose archive, keep, or delete for previous drafts")
-    if draft_action == 'delete' and delete_confirmation != 'delete':
-        return host_gathering_page(id, request, "Confirm deletion of previous unapproved AI drafts before generating.", status_code=400)
     with connection() as db:
         numbered_questions = load_questions(db, id)
         question_id_by_number = {q['question_number']: q['id'] for q in numbered_questions}
@@ -329,13 +335,20 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...),
         if not questions:
             return host_gathering_page(id, request, "No questions yet. Add participant questions before suggesting themes. Ollama was not called.")
         db.execute('BEGIN IMMEDIATE')
-        run_id, previous = workflow.start_analysis(db, id, request_key, len(questions), draft_action)
+        run_id = workflow.start_analysis(db, id, request_key, len(questions), model=OLLAMA_MODEL)
+        workflow.record_question_snapshot(db, id, run_id, numbered_questions)
     # Never hold a SQLite write lock during inference. A committed claim blocks retries.
     try:
         suggestions = suggest_themes(questions, OLLAMA_BASE_URL, OLLAMA_MODEL)
         with connection() as db:
             db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM analysis_runs WHERE id=? AND gathering_id=?', (run_id, id)).fetchone():
+                raise ThemeError('This analysis was deleted while generation was running. No suggestions were saved.')
             for suggestion in suggestions:
+                try:
+                    notes = validate_generated_notes(suggestion.get('facilitation_notes'))
+                except ValueError as exc:
+                    raise ThemeError('Ollama returned missing or invalid facilitation notes. Please try again.') from exc
                 title = workflow.plain_text(suggestion['title'], 120)
                 description = validate_generated_description(title, suggestion.get('description'))
                 description = workflow.plain_text(description, 1000, multiline=True)
@@ -345,8 +358,8 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...),
                     raise ThemeError("Ollama returned invalid question references. Please try again.")
                 source_ids = [question_id_by_number[n] for n in numbers]
                 theme_id = workflow.insert_theme(db, id, title, description, 'ai', source_ids)
+                workflow.insert_generated_notes(db, theme_id, notes)
                 db.execute("INSERT INTO theme_analysis_runs VALUES (?,?)", (theme_id, run_id))
-            workflow.apply_draft_action(db, id, draft_action, previous)
             workflow.finish_analysis(db, run_id, 'complete')
             workflow.finish_request(db, request_key, 'complete')
     except (ThemeError, HTTPException) as exc:
@@ -356,6 +369,44 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...),
         error = str(exc) if isinstance(exc, ThemeError) else "Ollama returned theme text that could not be saved safely. Please try again."
         return host_gathering_page(id, request, error)
     return workspace_redirect(id, "themes", "discussion-themes")
+
+
+@app.get("/host/gatherings/{id}/analyses/{run_id}/export.html")
+def export_analysis(id: int, run_id: int, request: Request):
+    require_admin(request)
+    with connection() as db:
+        # A consistent read snapshot; export never writes or calls inference.
+        db.execute('BEGIN')
+        data = load_analysis_export(db, id, run_id)
+    zone, fallback = export_timezone(request.query_params.get('timezone'))
+    html = templates.get_template('analysis_export.html').render(
+        **data, export_zone=zone, timezone_fallback=fallback,
+        exported_at=datetime.now(timezone.utc).isoformat(),
+        export_time=lambda value: timestamp_display(value, zone, fallback))
+    return HTMLResponse(html, headers={
+        'Content-Disposition': f'attachment; filename="gathering-{id}-analysis-{run_id}.html"',
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    })
+
+
+@app.post("/host/gatherings/{id}/analyses/{run_id}/{action}")
+def analysis_action(id: int, run_id: int, action: str, request: Request,
+                    action_key: str = Form(...), confirmation: str = Form('')):
+    require_admin(request)
+    get_gathering(id)
+    try:
+        payload = URLSafeSerializer(SESSION_SECRET, salt='analysis-actions').loads(action_key)
+        if not isinstance(payload, list) or len(payload) != 4 or payload[:3] != [id, run_id, request.session.get('csrf_token')]:
+            raise BadSignature('Wrong analysis scope')
+    except BadSignature:
+        raise HTTPException(400, 'Invalid analysis form. Reload Discussion Themes and try again.')
+    with connection() as db:
+        workflow.change_analysis(db, id, run_id, payload[3], action, confirmation)
+    if action == 'delete':
+        return workspace_redirect(id, 'themes', 'discussion-themes')
+    return RedirectResponse(f'/host/gatherings/{id}?tab=themes&analysis={run_id}#analysis-{run_id}', 303)
 
 
 @app.post("/host/gatherings/{id}/themes/manual")
@@ -371,6 +422,17 @@ def manual_theme(id: int, request: Request, request_key: str = Form(...), title:
         workflow.insert_theme(db, id, title, description, 'manual')
         workflow.finish_request(db, request_key, 'complete')
     return workspace_redirect(id, "themes", "discussion-themes")
+
+
+@app.post("/host/gatherings/{id}/themes/{theme_id}/notes")
+def theme_notes(id: int, theme_id: int, request: Request, notes_revision: int = Form(...),
+                shared_concerns: str = Form(''), different_perspectives: str = Form(''),
+                discussion_questions: str = Form('')):
+    require_admin(request)
+    get_gathering(id)
+    with connection() as db:
+        workflow.save_notes(db, id, theme_id, notes_revision, shared_concerns, different_perspectives, discussion_questions)
+    return workspace_redirect(id, 'themes', theme=theme_id)
 
 
 @app.post("/host/gatherings/{id}/themes/{theme_id}/{action}")
@@ -508,8 +570,9 @@ def export_csv(id: int, kind: str, request: Request):
 def workspace_error(request, context, message, status_code):
     """Retain submitted text on the correct server-rendered view, without writes."""
     form = getattr(request.state, 'workspace_form', {})
-    state = {key: form[key] for key in ('title', 'description', 'when_text', 'location', 'url')
-             if isinstance(form.get(key), str)}
+    editable_fields = ('title', 'description', 'when_text', 'location', 'url',
+                       'shared_concerns', 'different_perspectives', 'discussion_questions')
+    state = {key: form[key] for key in editable_fields if isinstance(form.get(key), str)}
     agenda_rows = None
     if context['section'] == 'agenda':
         columns = [form.getlist(key) for key in ('item_title', 'minutes', 'notes')] if hasattr(form, 'getlist') else [[], [], []]
@@ -519,7 +582,7 @@ def workspace_error(request, context, message, status_code):
     return host_gathering_page(context['id'], request, message, error_theme=context['theme_id'],
         error_action=context['action'], submitted=state, status_code=status_code, tab=context['tab'],
         form_state=state, error_section=context['section'], error_resource=context['resource_id'],
-        agenda_rows=agenda_rows)
+        agenda_rows=agenda_rows, error_run=context['run_id'])
 
 
 @app.exception_handler(HTTPException)
