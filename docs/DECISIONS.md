@@ -153,7 +153,7 @@ Common Ground is intended to serve communities rather than acquire or monetize p
 
 **Current limitation**
 
-The prototype provides local persistence, basic host authentication, and development privacy guidance. It does not yet provide a complete participant notice, data export, deletion, retention, or role-based authorization system. Use fictional contributions only until these requirements are addressed.
+The prototype provides local persistence, basic host authentication, and development privacy guidance. It does not yet provide a complete participant notice, deletion, retention, or role-based authorization system. Use fictional contributions only until these requirements are addressed.
 
 **Open questions**
 
@@ -191,14 +191,14 @@ Following local testing and deployment-readiness work, we intend to deploy a pub
 
 - Replace development credentials and protect session secrets.
 - Configure HTTPS, an appropriate hostname, and secure session cookies.
-- Review authentication and authorization; implement CSRF protection.
+- Review authentication and authorization; maintain CSRF protection.
 - Implement abuse prevention for public forms.
 - Establish database backups and test restoration.
 - Review accessibility and define acceptance criteria.
 - Use fictional demonstration data.
 - Restrict access to Ollama and administrative interfaces.
 
-The current prototype has minimal shared-password host authentication and no CSRF protection or rate limiting. It must not be exposed publicly in this state.
+The current prototype has minimal shared-password host authentication and no rate limiting. It must not be exposed publicly in this state.
 
 **AI hosting decision remains open**
 
@@ -234,6 +234,31 @@ These results describe the tested revision, not a security audit, a guarantee of
 
 AI assistance supports development speed while requiring independent validation and engineering accountability.
 
+## ADR-010 — Independent and Anonymous Participation
+
+**Status: Implemented in prototype; verification required**
+
+Common Ground allows participants to RSVP and submit questions independently.
+
+- RSVPs may include a participant's name.
+- Questions do not require an RSVP or participant identity.
+- Questions are associated with a gathering, not an individual RSVP.
+- Organizers should not infer who submitted a question based on attendance records.
+
+**Rationale**
+
+Participants should be able to express ideas, concerns, and disagreements without identifying themselves. Anonymous contributions can encourage participation, especially when discussing sensitive or controversial community matters.
+
+**Tradeoff**
+
+Anonymous submissions complicate moderation, abuse prevention, and individual requests to remove previously submitted questions.
+
+**Consequence**
+
+We must design appropriate moderation and privacy controls without unnecessarily collecting identifying information.
+
+Anonymity in the database does not automatically guarantee anonymity at the infrastructure level. Server logs and other metadata require review before making assurances about participant anonymity.
+
 ## Outstanding Decisions
 
 Before public deployment, finalize:
@@ -251,3 +276,33 @@ Before public deployment, finalize:
 **Common Ground uses artificial intelligence to help communities understand their conversations—not to decide what their communities think.**
 
 People contributing information retain their voices. People organizing gatherings remain responsible for interpreting and acting on what they hear.
+
+## ADR-011 — Host Operations and Additive Migrations
+
+**Status: Implemented — October 27, 2026**
+
+Host review now edits gathering details, ordered agenda titles with optional
+minutes and public notes, and public URL resources. Separate additive tables hold
+agenda items, resource links, and cancellation status. Startup converts legacy
+agenda lines once in a transaction; repeat startup does not overwrite revisions.
+The legacy agenda column remains synchronized when hosts revise an agenda.
+Existing participant records and gathering IDs are preserved.
+
+Cancellation closes public submissions while preserving contributions, host review,
+and exports. Restoration reopens submissions. There is no destructive gathering
+removal action. Resources accept only HTTP/HTTPS URLs without embedded credentials;
+they are not fetched by the server. Document uploads are deferred because safe
+storage, content validation, size limits, and download handling need separate work.
+
+Every host action requires the existing shared-password session. All POST actions
+require a session-bound CSRF token, including authentication and participant forms.
+Login rotates the token; logout clears the session. Rendered pages and CSV exports
+are marked no-store. Host-only, gathering-scoped CSV downloads separate RSVPs from
+anonymous questions, retain timestamps, quote CSV fields, and neutralize spreadsheet
+formula prefixes. Public pages expose attendance counts, never RSVP identities or
+participant questions. This remains a local prototype without rate limiting,
+individual organizer accounts, ownership authorization, or retention controls.
+
+Before this implementation, `scripts/database.sh backup` produced
+`backups/common-ground-20261027T161710Z.db`; integrity and required application
+tables were independently verified using `app.database_tools.validate`.

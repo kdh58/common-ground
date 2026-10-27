@@ -5,3 +5,13 @@ __pycache__/
 *.pyc
 *.db
 *.sqlite*
+backups/
+
+# Local secrets and SQLite sidecar files
+.env.*
+!.env.example
+.aws/
+*.pem
+*.key
+*.db-*
+*.sqlite*-*

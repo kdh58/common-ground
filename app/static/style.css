@@ -1,1 +1,36 @@
 :root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#193129;background:#f7f8f3;line-height:1.55}*{box-sizing:border-box}body{margin:0}a{color:#195c4c}header{background:#fff;border-bottom:1px solid #e4e9e1}nav{max-width:1050px;margin:auto;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}nav a{text-decoration:none}.brand{font-weight:800;font-size:1.25rem}main{max-width:1050px;margin:0 auto;padding:38px 22px 80px}h1{font-size:clamp(2rem,5vw,3.4rem);line-height:1.16;margin:10px 0 20px;letter-spacing:-.035em}h2{font-size:1.5rem;line-height:1.25}.hero{border-radius:24px;padding:55px 45px;background:#dcebe0;margin-bottom:40px}.hero p{max-width:620px}.eyebrow{font-size:.76rem;letter-spacing:.16em;color:#366b5b;font-weight:800}.lede{font-size:1.2rem;max-width:700px}.card{border:1px solid #e4e9e1;border-radius:18px;background:#fff;padding:28px;box-shadow:0 8px 22px #1b3f2a0d}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:28px}.details{display:flex;gap:16px;flex-wrap:wrap;color:#43554f;margin:24px 0}.button,button{display:inline-block;background:#1c604e;border:0;border-radius:9px;color:#fff!important;text-decoration:none;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer}.secondary{background:#607a6e}label{display:block;margin:12px 0 6px;font-weight:650}input,textarea{display:block;width:100%;padding:12px;border:1px solid #b8c9bd;border-radius:8px;margin:5px 0 16px;font:inherit;background:white}input:focus,textarea:focus{outline:3px solid #accfbb}.note,footer{font-size:.86rem;color:#66746b}.notice{padding:13px;background:#e0f5e7;border-radius:8px}.error{color:#ae2828}.narrow{max-width:450px;margin:30px auto}.topline{display:flex;justify-content:space-between;align-items:center}footer{text-align:center;padding:20px;border-top:1px solid #e4e9e1}@media(max-width:700px){.columns{grid-template-columns:1fr}.hero{padding:30px 24px}.topline{align-items:flex-start;gap:12px}}
+
+/* Host workspace: retain the existing palette and layout with clearer controls. */
+.host-workspace { font-size: 1rem; }
+.host-workspace .columns > * { min-width: 0; }
+.host-workspace a { text-underline-offset: .2em; }
+.host-workspace a:not(.button) { display: inline-block; min-height: 44px; padding-block: 10px; }
+.host-workspace :is(a, button, input, textarea, summary):focus-visible {
+  outline: 3px solid #193129;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px #fff;
+}
+.host-workspace :is(input, textarea) { border-color: #607a6e; min-height: 44px; color: #193129; }
+.host-workspace :is(input, textarea)::placeholder { color: #52665c; opacity: 1; }
+.host-workspace :is(button, .button) { min-height: 44px; font-size: 1rem; text-align: center; }
+.host-workspace .secondary { background: #435e51; }
+.host-workspace :is(button, .button):hover { background: #164b3e; }
+.host-workspace .host-gatherings { list-style: none; padding: 0; margin: 0 0 24px; display: grid; gap: 16px; }
+.host-workspace .host-gathering { border: 1px solid #607a6e; border-radius: 12px; padding: 18px; overflow-wrap: anywhere; }
+.host-workspace .host-gathering h3 { font-size: 1.2rem; line-height: 1.4; margin: 0; }
+.host-workspace .gathering-when { margin: 4px 0; color: #43554f; }
+.host-workspace .gathering-status { margin: 8px 0 16px; }
+.host-workspace .manage-gathering { display: block; width: 100%; }
+.host-workspace .recent-questions { margin-block: 24px; border-block: 1px solid #607a6e; padding-block: 8px; overflow-wrap: anywhere; }
+.host-workspace summary { padding: 10px 4px; min-height: 44px; font-size: 1.2rem; font-weight: 700; cursor: pointer; }
+.host-workspace summary:hover { color: #195c4c; }
+.host-workspace .back-to-dashboard { font-weight: 700; }
+.host-workspace fieldset { min-width: 0; }
+.host-workspace form + form { margin-top: 16px; }
+@media (max-width: 400px) {
+  .host-workspace .card { padding: 18px; }
+  .host-workspace .topline { flex-wrap: wrap; }
+}
+@media (forced-colors: active) {
+  .host-workspace :is(button, .button) { border: 1px solid ButtonText; }
+}
