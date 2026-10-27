@@ -109,7 +109,7 @@ def test_ai_generation_scoped_persistent_append_only(client, monkeypatch):
     seen = []
     def suggest(questions, base, model):
         seen.append(questions)
-        return [{'title': 'AI suggestion', 'question_ids': [questions[0]['id']]}]
+        return [{'title': 'AI suggestion', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [questions[0]['id']]}]
     monkeypatch.setattr(main, 'suggest_themes', suggest)
     request_key = key(client, 'generate')
     assert post(client, '/host/gatherings/1/themes', data={'request_key': request_key}).status_code == 200
@@ -122,7 +122,7 @@ def test_ai_generation_scoped_persistent_append_only(client, monkeypatch):
     assert 'AI suggestion' not in public(client)
     assert post(client, '/host/gatherings/1/themes', data={'request_key': request_key}).status_code == 409
     assert len(seen) == 1 and len(rows()) == 3
-    assert post(client, '/host/gatherings/1/themes').status_code == 200
+    assert post(client, '/host/gatherings/1/themes', data={'draft_action': 'keep'}).status_code == 200
     assert len(rows()) == 4 and rows()[:2] == before
     assert act(client, 'edit', ai, title='Host interpretation', description='Human correction').status_code == 200
     assert rows()[2]['ai_original_title'] == 'AI suggestion'
@@ -150,7 +150,7 @@ def test_ai_failures_save_nothing_preserve_existing(client, monkeypatch, case):
         if case == 'unavailable':
             raise httpx.ConnectError('PRIVATE error')
         title = 'Bad\x00control' if case == 'unsafe-control' else 'Topic'
-        content = json.dumps({'themes': [{'title': title, 'question_ids': [999 if case == 'invalid-reference' else 1]}]})
+        content = json.dumps({'themes': [{'title': title, 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [999 if case == 'invalid-reference' else 1]}]})
         body = {'done': True, 'message': {'content': 'invalid json' if case == 'malformed' else content}}
         if case == 'truncated':
             body['done_reason'] = 'length'
@@ -307,7 +307,7 @@ def test_generation_claim_prevents_concurrent_duplicate(client, monkeypatch):
         calls.append(1)
         started.set()
         assert finish.wait(10)
-        return [{'title': 'Only once', 'question_ids': [1]}]
+        return [{'title': 'Only once', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1]}]
     monkeypatch.setattr(main, 'suggest_themes', suggest)
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(post, client, '/host/gatherings/1/themes', data={'request_key': request_key})
@@ -352,8 +352,8 @@ def test_generation_batch_is_atomic_and_sources_are_scoped(client, monkeypatch):
     create(client)
     before = rows()
     monkeypatch.setattr(main, 'suggest_themes', lambda *args: [
-        {'title': 'Valid first', 'question_ids': [1]},
-        {'title': 'Invalid second', 'question_ids': [2]},
+        {'title': 'Valid first', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [1]},
+        {'title': 'Invalid second', 'description': 'Questions raise concerns about access and opportunities for discussion.', 'question_ids': [2]},
     ])
     assert post(client, '/host/gatherings/1/themes').status_code == 200
     assert rows() == before
@@ -396,3 +396,90 @@ def test_backup_contains_saved_workflow(client, tmp_path):
         db.row_factory = sqlite3.Row
         assert theme_workflow.load_themes(db, 1) == before
         assert db.execute('SELECT count(*) FROM theme_requests').fetchone()[0] == 1
+
+
+def test_generated_description_round_trip_and_publication_rules(client, monkeypatch):
+    login(client)
+    post(client, '/gatherings/1/questions', data={'question': 'Could evening workshops improve access?'})
+    post(client, '/gatherings/1/questions', data={'question': 'How would evening hours affect staff workload?'})
+    create(client, 'Existing draft', 'Keep draft description')
+    create(client, 'Existing published', 'Keep published description')
+    act(client, 'approve', rows()[1])
+    act(client, 'publish', rows()[1])
+    before = rows()
+    with main.connection() as db:
+        questions_before = [tuple(r) for r in db.execute('SELECT * FROM questions')]
+    description = ('Questions explore evening access alongside staffing workload. '
+                   'One question includes <script>alert("not executable")</script> as untrusted text.')
+    original = httpx.Client.post
+    def ollama(self, url, **kwargs):
+        if not str(url).endswith('/api/chat'):
+            return original(self, url, **kwargs)
+        sent = json.loads(kwargs['json']['messages'][1]['content'])['untrusted_questions']
+        assert [q['id'] for q in sent] == [1, 2]
+        return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps({'themes': [{
+            'title': 'Evening access and staffing', 'description': description, 'question_ids': [1, 2],
+        }]})}}, request=httpx.Request('POST', url))
+    monkeypatch.setattr(httpx.Client, 'post', ollama)
+    assert post(client, '/host/gatherings/1/themes').status_code == 200
+    assert rows()[:2] == before
+    generated = rows()[2]
+    assert generated['description'] == description and generated['status'] == 'draft'
+    assert generated['question_ids'] == [1, 2]
+    assert 'Evening access and staffing' not in public(client)
+    host = client.get('/host/gatherings/1').text
+    assert 'Questions explore evening access' in host
+    assert '&lt;script&gt;' in host and '<script>' not in host
+    assert re.search(r'<textarea[^>]*name="description"[^>]*>Questions explore evening access', host)
+    with TestClient(main.app) as restarted:
+        assert 'Evening access and staffing' not in public(restarted)
+    assert rows()[2]['description'] == description
+    assert act(client, 'approve', generated).status_code == 200
+    assert 'Evening access and staffing' not in public(client)
+    assert act(client, 'publish', rows()[2]).status_code == 200
+    page = public(client)
+    assert 'Questions explore evening access' in page and '&lt;script&gt;' in page and '<script>' not in page
+    assert act(client, 'edit', rows()[2], title=generated['title'], description='Host revised context.').status_code == 200
+    assert rows()[2]['status'] == 'draft'
+    assert 'Questions explore evening access' not in public(client) and 'Host revised context.' not in public(client)
+    assert act(client, 'publish', rows()[2]).status_code == 409
+    assert rows()[:2] == before
+    with main.connection() as db:
+        assert [tuple(r) for r in db.execute('SELECT * FROM questions')] == questions_before
+
+
+@pytest.mark.parametrize('bad_description', [None, '', 'x' * 1001])
+def test_invalid_description_batch_preserves_saved_topics(client, monkeypatch, bad_description):
+    login(client)
+    create(client)
+    before = rows()
+    post(client, '/gatherings/1/questions', data={'question': 'A question'})
+    original = httpx.Client.post
+    def ollama(self, url, **kwargs):
+        if not str(url).endswith('/api/chat'):
+            return original(self, url, **kwargs)
+        return httpx.Response(200, json={'done': True, 'message': {'content': json.dumps({'themes': [
+            {'title': 'Valid topic', 'description': 'A valid description.', 'question_ids': [1]},
+            {'title': 'Invalid topic', 'description': bad_description, 'question_ids': [1]},
+        ]})}}, request=httpx.Request('POST', url))
+    monkeypatch.setattr(httpx.Client, 'post', ollama)
+    assert post(client, '/host/gatherings/1/themes').status_code == 200
+    assert rows() == before
+
+
+@pytest.mark.parametrize('description', [None, '', 'Title only', 'One. Two. Three. Four.'])
+def test_generation_route_rejects_invalid_descriptions_before_storage(client, monkeypatch, description):
+    login(client)
+    post(client, '/gatherings/1/questions', data={'question': 'Could evening hours help access?'})
+    create(client)
+    before = rows()
+    suggestion = {'title': 'Title only', 'question_ids': [1]}
+    if description is not None:
+        suggestion['description'] = description
+    monkeypatch.setattr(main, 'suggest_themes', lambda *_: [suggestion])
+    response = post(client, '/host/gatherings/1/themes')
+    assert response.status_code == 200
+    assert rows() == before
+    assert 'Please try again' in response.text
+    with main.connection() as db:
+        assert db.execute("SELECT status FROM theme_requests WHERE kind='generate'").fetchone()[0] == 'failed'

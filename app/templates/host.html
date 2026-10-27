@@ -11,6 +11,6 @@
 </ul>
 <details class="recent-questions">
 <summary>Recent questions ({{ questions|length }})</summary>
-{% if questions %}<ul>{% for q in questions %}<li><strong>{{ q.title }}</strong>: {{ q.question }}</li>{% endfor %}</ul>{% else %}<p>No questions yet.</p>{% endif %}
+{% if questions %}<ul>{% for q in questions %}<li><strong>{{ q.title }}</strong> — Question #{{ q.question_number }}: {{ q.question }}</li>{% endfor %}</ul>{% else %}<p>No questions yet.</p>{% endif %}
 </details>
 <h2>Recent RSVPs</h2>{% if rsvps %}<ul>{% for r in rsvps %}<li>{{ r.name }} — {{ r.title }}</li>{% endfor %}</ul>{% else %}<p>No RSVPs yet.</p>{% endif %}</section></div>{% endblock %}

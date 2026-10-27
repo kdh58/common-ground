@@ -74,6 +74,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pytest -q
+# Native Intl/date-formatting tests require Node.js 20+ (test tooling only):
+node tests/test_timestamps.cjs
 ```
 
 ## Security and privacy status
@@ -91,7 +93,9 @@ addresses, and IPv6 unique-local addresses. HTTP redirects are not followed.
 Operate Ollama without cloud inference or forwarding proxies; the application
 cannot audit the behavior of an operator-controlled inference server. This app does not change WSL or Ollama service settings.
 
-Requests use structured JSON output, a 5-second connection timeout and a 45-second network-operation timeout. Connection/model errors, timeouts and invalid output show a retry message while preserving questions. Successful generation saves new private drafts in SQLite and redirects to Manage gathering.
+Requests use structured JSON output with required titles, descriptions (up to 1,000
+characters), and question IDs, a bounded 1,600-token output budget with thinking
+disabled, a 5-second connection timeout and a 45-second network-operation timeout. Connection/model errors, timeouts and invalid output show a retry message while preserving questions. Successful generation saves new private drafts in SQLite and redirects to Manage gathering.
 Reloading the page or restarting the app preserves them. A failed request saves no
 partial suggestions and preserves existing themes. Tests mock Ollama and require no live model.
 
@@ -137,8 +141,17 @@ there are no per-organizer accounts or gathering ownership permissions.
 ## Community-governed discussion themes
 
 In **Manage gathering → Discussion themes**, use **Suggest Discussion Themes** or
-**Create manual draft**. The existing generator still proposes titles with cited
-question IDs; descriptions start blank so hosts can write their own context.
+**Create manual draft**. The generator proposes concise titles and 1–3 sentence descriptions with cited
+question IDs. Descriptions explain supported concerns, opportunities, competing
+perspectives, and tradeoffs without claiming community consensus. The prompt asks
+for distinct topics, merging redundant or substantially overlapping themes instead
+of filling a quota.
+Generated descriptions are validated, saved in the existing description field,
+and shown privately with the draft and its edit form. They appear publicly only
+after approval and publication. Missing, empty, overlong, or invalid descriptions
+and duplicate normalized titles/descriptions reject the entire batch. A sentence-count
+heuristic also rejects more than three sentences and repeated-title descriptions.
+Semantic overlap and faithful representation still need host review.
 No new external service, analytics, or telemetry is used.
 
 | State | Meaning | Public visibility |
@@ -171,7 +184,8 @@ single-use form keys. Repeated submissions return 409 without creating more draf
 or repeating inference. Other actions check a revision counter; stale forms return
 409 rather than overwriting later work. Reload Manage gathering to review current
 content and obtain a fresh form. A new intentional generation appends drafts and
-never replaces existing themes. Inference runs synchronously without holding a
+applies the selected Archive/Keep/Delete choice to eligible previous AI drafts.
+Manual, approved, and published themes are preserved. Inference runs synchronously without holding a
 SQLite write lock. If the process stops mid-generation, its request key stays
 consumed; reload and explicitly retry. Request receipts are retained to prevent
 replay; automatic cleanup is not implemented.
@@ -181,3 +195,128 @@ an ordering index, within the existing startup migration transaction. It is
 additive and repeatable and does not rewrite Phase 1 records. Themes record UTC
 `created_at` and `updated_at`, origin, status, order, and revision. Back up before
 first starting this version; backup and restore include the new tables.
+
+Question display numbers start at 1 for each gathering, ordered by creation time
+with database ID breaking ties. Host lists and theme source citations use the same
+numbers, including when only a subset is cited. New submissions append to this
+order. Question CSV exports retain database IDs and add a separate
+`question_number` column; citation relationships continue to use database IDs.
+
+## Managing repeated AI analyses
+
+**Current Themes** keeps every manual theme and every approved/published theme
+visible above AI history, regardless of how old its original analysis is. Open a
+theme row to edit, review original citations, approve, publish, move, or delete as
+permitted by its state. Editing still removes approval/publication. Move actions
+retain the gathering-wide ordering used on the public page.
+
+**AI analysis history** groups new suggestions by explicit run ID, newest first.
+Each native disclosure header shows generation time, input question count, original
+number of generated themes, and current state counts. Only the newest run starts
+open; individual themes start collapsed with title, status, and a description
+preview. Approved/published themes remain in Current Themes; history retains their
+status and a link to the current editor. Timestamps use an explicit English
+12-hour format in your browser's detected timezone; without JavaScript they show the explicitly labeled
+America/New_York prototype fallback (see Timezone handling below).
+All disclosures and modifying forms work without JavaScript. Links can also be
+opened by manually expanding the destination disclosure without JavaScript.
+
+Before generating, choose how to handle previous unapproved AI drafts:
+
+- **Archive** (default): keep the original records and citations but make them
+  inactive. Open the old run and use **Restore draft** before editing or approving.
+- **Keep**: leave previous drafts active alongside the new analysis.
+- **Delete**: permanently remove previous AI drafts, including archived ones,
+  only after checking the explicit confirmation box. Questions remain intact.
+
+These choices never affect manual, approved, or published themes, or drafts that
+changed while inference was running. They take effect atomically only when the
+new analysis saves successfully. Failed analyses keep earlier drafts unchanged
+and appear as failed runs; an interrupted request may remain marked in progress
+or interrupted. Explicitly start a fresh analysis to retry. Existing single-use
+request keys and theme revision checks continue to reject duplicate/stale forms.
+Save/Approve errors reopen the affected theme and run and show feedback nearby.
+
+Back up and verify SQLite before starting this version: the additive migration
+introduces `analysis_runs`, `theme_analysis_runs`, and `archived_themes`. Original
+theme/question IDs, content, source relationships, statuses, and participant
+submissions are preserved. Older suggestions appear in **Legacy suggestions —
+analysis run unknown**; their original input count and run boundaries were not
+recorded and are not guessed from timestamps. No legacy themes are automatically
+archived or deleted by migration. No pagination or automatic history cleanup is
+implemented; collapsed history still loads on the host page.
+
+## Timezone handling
+
+System timestamps remain UTC in SQLite and CSV exports. Only their display changes.
+Every system timestamp uses a shared formatter, including analysis start/finish and
+theme Created/Updated dates. The browser detects its IANA timezone with
+`Intl.DateTimeFormat().resolvedOptions().timeZone`; no Docker/container timezone,
+server timezone, stored preference, or assumption about a user's location is used.
+No detected timezone is sent to the server.
+
+Dates display in an explicit English 12-hour format such as
+**Oct 27, 2026 · 1:22 PM EDT**. Native Intl applies the selected zone's daylight-saving
+rules; abbreviations or GMT offsets distinguish repeated fall-back hours. The
+browser uses its detected timezone, including America/Los_Angeles and non-US zones.
+If detection is missing, unsupported, or fails, this prototype uses
+**America/New_York**, visibly labeled **(America/New_York; fallback)**. The readable
+server-rendered fallback uses that same explicit zone via Python's standard-library
+`zoneinfo` and is independent of the container's default timezone. It remains
+visible without JavaScript or Intl. Server environments need IANA timezone data
+(the existing Docker image provides it).
+
+Visible dates and tooltips contain neither raw ISO values nor microseconds.
+Machine-readable `datetime` attributes retain an explicit UTC offset with second
+precision. Invalid, missing, or timezone-naive system timestamps display **Time
+unavailable** rather than guessing a timezone or echoing raw data. Output uses
+Jinja autoescaping and browser `textContent`, never HTML insertion.
+
+Gathering schedules such as “Saturday, November 14 · 2:00 PM” are human-entered
+**event text**, not UTC system timestamps. They remain unchanged in forms and on
+public pages and are never automatically parsed or converted. Event-specific
+IANA timezone configuration and structured event scheduling are future features.
+Full browser/assistive-technology review remains a manual check; automated tests
+exercise native Intl plus server rendering and storage preservation.
+
+AI review descriptions appear as a short preview only while a theme is collapsed.
+Expanded active themes show the description once in the editable textarea;
+archived themes use a read-only textarea until restored. History references link
+to the existing Current Themes editor instead of duplicating it.
+
+New Ollama requests use gathering-local question numbers, starting at 1, in the
+input `id` fields and returned `question_ids` field. The server validates against
+the exact request's local-number map, maps sources back to database IDs, and checks
+gathering ownership before saving. Global database IDs are not sent as model
+identifiers. The prompt asks for natural issue descriptions without numbered
+references in prose; model adherence still needs host review. Existing descriptions
+and stored source citations are not rewritten.
+
+## End-to-end demonstration sequence
+
+Use fictional data and a local test instance of this checkpoint. Before running
+an updated instance, follow the verified-backup instructions above; schema startup
+is additive. Preparing the checkpoint does not update an already running service.
+
+1. As a participant, open a gathering, RSVP, and submit several questions with
+   differing concerns. Use a second gathering to demonstrate numbering restarting
+   at 1; gathering schedules remain human-entered event text.
+2. Sign in as host, manage the gathering, and verify the original questions and
+   CSV exports. Generate an AI analysis and open one theme to review its description
+   and local-numbered source questions.
+3. Generate another analysis with the default Archive choice. Show the newest run
+   open, older run collapsed, and Restore an older archived draft. Keep and confirmed
+   Delete are alternative choices, not automatic cleanup of approved themes.
+4. Edit a theme, approve it, and check it remains private. Publish it and show the
+   curated public topic. Return to Current Themes to find approved/published content
+   independently of its original run. Editing published text makes it private again.
+5. Check a system timestamp in your browser's detected timezone; compare another
+   browser/device timezone if available. Without JavaScript, the visible prototype
+   fallback is America/New_York. Keyboard-check summaries, forms and focus indicators.
+
+Checkpoint verification: 167 Python tests and 35 native-Intl JavaScript tests pass.
+An isolated synthetic-data smoke test also completed two real local Ollama analyses,
+archive/restore, RSVP/gathering creation, citation mapping, approval and publication.
+No running application database or service configuration was modified. Full browser
+and assistive-technology review, model interpretation review, and operating the
+updated demo instance remain manual steps.

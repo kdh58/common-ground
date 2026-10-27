@@ -24,7 +24,7 @@
 <form method="post" action="/host/gatherings/{{ gathering.id }}/resources"><input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><label>Title<input name="title" maxlength="200" required></label><label>URL<input name="url" type="url" maxlength="2048" required></label><button>Add resource</button></form></section>
 {% include 'theme_workflow.html' %}
 <section class="card"><h2>Original questions</h2>
-{% if questions %}<ul>{% for q in questions %}<li>#{{ q.id }}: {{ q.question }}</li>{% endfor %}</ul>
+{% if questions %}<ul>{% for q in questions %}<li>#{{ q.question_number }}: {{ q.question }}</li>{% endfor %}</ul>
 {% else %}<p>No questions yet.</p>{% endif %}
 </section>
 {% endblock %}

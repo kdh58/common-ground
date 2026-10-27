@@ -21,7 +21,9 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.themes import ThemeError, suggest_themes
+from app.timestamps import timestamp_display
+from app.questions import NUMBERED_QUESTIONS, load_questions
+from app.themes import ThemeError, suggest_themes, validate_generated_description
 from app import theme_workflow as workflow
 
 ROOT = Path(__file__).parent
@@ -49,6 +51,7 @@ app = FastAPI(dependencies=[Depends(protect_request)], title="Common Ground", do
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=False)
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 templates = Environment(loader=FileSystemLoader(str(ROOT / "templates")), autoescape=select_autoescape())
+templates.filters["timestamp_display"] = timestamp_display
 
 @contextmanager
 def connection():
@@ -173,7 +176,7 @@ def host(request: Request):
         return render("login.html", request, error="")
     with connection() as db:
         gatherings = [dict(r) for r in db.execute("SELECT g.*, COALESCE(s.cancelled, 0) AS cancelled FROM gatherings g LEFT JOIN gathering_status s ON s.gathering_id=g.id ORDER BY g.id DESC")]
-        questions = [dict(r) for r in db.execute("SELECT q.question, g.title FROM questions q JOIN gatherings g ON g.id=q.gathering_id ORDER BY q.id DESC LIMIT 50")]
+        questions = [dict(r) for r in db.execute(f"SELECT q.*, g.title FROM ({NUMBERED_QUESTIONS}) q JOIN gatherings g ON g.id=q.gathering_id ORDER BY q.created_at DESC,q.id DESC LIMIT 50")]
         rsvps = [dict(r) for r in db.execute("SELECT r.name, g.title FROM rsvps r JOIN gatherings g ON g.id=r.gathering_id ORDER BY r.id DESC LIMIT 50")]
     return render("host.html", request, gatherings=gatherings, questions=questions, rsvps=rsvps)
 
@@ -224,19 +227,31 @@ def validate_theme_key(request, gathering_id, kind, key):
         raise HTTPException(400, "Invalid theme form. Reload Manage gathering and try again.")
 
 
-def host_gathering_page(id, request, error=""):
+def host_gathering_page(id, request, error="", error_theme=None, error_action="", submitted=None, status_code=200):
     require_admin(request)
     gathering = get_gathering(id)
     with connection() as db:
-        questions = [dict(r) for r in db.execute(
-            "SELECT id, question FROM questions WHERE gathering_id=? ORDER BY id", (id,))]
+        questions = load_questions(db, id)
         themes = workflow.load_themes(db, id)
+        workspace = workflow.analysis_workspace(db, id, themes)
+    for index, theme in enumerate(themes):
+        theme['display_position'] = index + 1
+        theme['can_move_up'] = index > 0
+        theme['can_move_down'] = index < len(themes) - 1
+    try:
+        open_theme = error_theme or int(request.query_params.get('theme', '0'))
+    except ValueError:
+        open_theme = None
     # render initializes CSRF for a host's first page; normally login already did so.
     request.session.setdefault('csrf_token', secrets.token_urlsafe(32))
-    return render("host_gathering.html", request, gathering=gathering,
+    response = render("host_gathering.html", request, gathering=gathering,
                   questions=questions, themes=themes, error=error,
+                  open_theme=open_theme, error_theme=error_theme, error_action=error_action,
+                  submitted=submitted, **workspace,
                   generation_key=theme_form_key(request, id, 'generate'),
                   manual_key=theme_form_key(request, id, 'manual'))
+    response.status_code = status_code
+    return response
 
 
 @app.get("/host/gatherings/{id}", response_class=HTMLResponse)
@@ -245,15 +260,24 @@ def host_gathering(id: int, request: Request):
 
 
 @app.post("/host/gatherings/{id}/themes")
-def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
+def gathering_themes(id: int, request: Request, request_key: str = Form(...),
+                     draft_action: str = Form('archive'), delete_confirmation: str = Form('')):
     require_admin(request)
     get_gathering(id)
     validate_theme_key(request, id, 'generate', request_key)
+    if draft_action not in ('archive', 'keep', 'delete'):
+        raise HTTPException(400, "Choose archive, keep, or delete for previous drafts")
+    if draft_action == 'delete' and delete_confirmation != 'delete':
+        return host_gathering_page(id, request, "Confirm deletion of previous unapproved AI drafts before generating.", status_code=400)
     with connection() as db:
-        questions = [dict(r) for r in db.execute("SELECT id,question FROM questions WHERE gathering_id=? ORDER BY id", (id,))]
+        numbered_questions = load_questions(db, id)
+        question_id_by_number = {q['question_number']: q['id'] for q in numbered_questions}
+        # The model only sees the same gathering-local numbers as the host.
+        questions = [{"id": q["question_number"], "question": q["question"]} for q in numbered_questions]
         if not questions:
             return host_gathering_page(id, request, "No questions yet. Add participant questions before suggesting themes. Ollama was not called.")
-        workflow.claim_request(db, request_key, id, 'generate')
+        db.execute('BEGIN IMMEDIATE')
+        run_id, previous = workflow.start_analysis(db, id, request_key, len(questions), draft_action)
     # Never hold a SQLite write lock during inference. A committed claim blocks retries.
     try:
         suggestions = suggest_themes(questions, OLLAMA_BASE_URL, OLLAMA_MODEL)
@@ -261,11 +285,22 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
             db.execute('BEGIN IMMEDIATE')
             for suggestion in suggestions:
                 title = workflow.plain_text(suggestion['title'], 120)
-                workflow.insert_theme(db, id, title, '', 'ai', suggestion['question_ids'])
+                description = validate_generated_description(title, suggestion.get('description'))
+                description = workflow.plain_text(description, 1000, multiline=True)
+                numbers = suggestion.get('question_ids')
+                if (not isinstance(numbers, list) or not numbers or
+                        any(type(n) is not int or n not in question_id_by_number for n in numbers)):
+                    raise ThemeError("Ollama returned invalid question references. Please try again.")
+                source_ids = [question_id_by_number[n] for n in numbers]
+                theme_id = workflow.insert_theme(db, id, title, description, 'ai', source_ids)
+                db.execute("INSERT INTO theme_analysis_runs VALUES (?,?)", (theme_id, run_id))
+            workflow.apply_draft_action(db, id, draft_action, previous)
+            workflow.finish_analysis(db, run_id, 'complete')
             workflow.finish_request(db, request_key, 'complete')
     except (ThemeError, HTTPException) as exc:
         with connection() as db:
             workflow.finish_request(db, request_key, 'failed')
+            workflow.finish_analysis(db, run_id, 'failed')
         error = str(exc) if isinstance(exc, ThemeError) else "Ollama returned theme text that could not be saved safely. Please try again."
         return host_gathering_page(id, request, error)
     return RedirectResponse(f"/host/gatherings/{id}#discussion-themes", 303)
@@ -291,9 +326,17 @@ def theme_action(id: int, theme_id: int, action: str, request: Request, revision
                  title: str = Form(""), description: str = Form(""), confirmation: str = Form("")):
     require_admin(request)
     get_gathering(id)
-    with connection() as db:
-        workflow.change_theme(db, id, theme_id, revision, action, title, description, confirmation)
-    return RedirectResponse(f"/host/gatherings/{id}#discussion-themes", 303)
+    try:
+        with connection() as db:
+            workflow.change_theme(db, id, theme_id, revision, action, title, description, confirmation)
+    except HTTPException as exc:
+        if exc.status_code not in (400, 409):
+            raise
+        return host_gathering_page(id, request, str(exc.detail), error_theme=theme_id,
+                                   error_action=action, submitted={'title': title, 'description': description},
+                                   status_code=exc.status_code)
+    return RedirectResponse(f"/host/gatherings/{id}?theme={theme_id}#theme-{theme_id}" if action != 'delete'
+                            else f"/host/gatherings/{id}#discussion-themes", 303)
 
 
 @app.post("/host/gatherings/{id}/edit")
@@ -397,9 +440,15 @@ def export_csv(id: int, kind: str, request: Request):
     field = "name" if kind == "rsvps" else "question"
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(["id", "gathering_id", field, "created_at"])
+    columns = ["id", "gathering_id", field, "created_at"]
+    if kind == "questions":
+        columns.append("question_number")
+    writer.writerow(columns)
     with connection() as db:
-        for row in db.execute(f"SELECT id,gathering_id,{field},created_at FROM {kind} WHERE gathering_id=? ORDER BY id", (id,)):
+        rows = (load_questions(db, id) if kind == "questions" else
+                db.execute("SELECT id,gathering_id,name,created_at FROM rsvps WHERE gathering_id=? ORDER BY id", (id,)))
+        for record in rows:
+            row = [record[column] for column in columns]
             # Prevent spreadsheet applications from evaluating participant text as formulas.
             writer.writerow([("'" + str(v)) if str(v).lstrip().startswith(("=", "+", "-", "@")) or str(v).startswith(("\t", "\r", "\n")) else v for v in row])
     return Response(output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="gathering-{id}-{kind}.csv"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

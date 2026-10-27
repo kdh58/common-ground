@@ -101,7 +101,8 @@ The same three-question task with thinking disabled completed successfully using
 
 **Consequence**
 
-- Retain the 700-token output limit and temperature of 0.2 for the current experiment.
+- Keep output bounded and temperature at 0.2. The initial 700-token title-only
+  budget is now 1,600 tokens for titles plus descriptions (ADR-013).
 - Retain the 5-second connection timeout and 45-second network-operation timeout.
 - Explicitly reject `done_reason="length"`, even if the returned JSON otherwise parses.
 - Require structured JSON and validate theme shape, titles, and references against the supplied question IDs.
@@ -373,11 +374,11 @@ or request-receipt cleanup.
 
 **AI and input safeguards**
 
-Retain local Qwen3/Ollama JSON generation, `think: false`, 700 tokens, temperature
+Retain local Qwen3/Ollama JSON generation, `think: false`, bounded output (initially
+700 tokens, now 1,600 with descriptions; ADR-013), temperature
 0.2, existing timeouts, truncation rejection, response validation, and bounded
 opt-in diagnostics. Only this gathering's question IDs and text are sent; RSVPs
-and theme edits are not sent. AI descriptions are not generated: hosts supply
-optional context. Errors preserve all submissions and existing themes.
+and theme edits are not sent. AI descriptions are now generated and hosts can revise their context (ADR-013). Errors preserve all submissions and existing themes.
 
 External endpoint hostnames/public IPs are rejected before networking. Permitted
 hosts are localhost, host.docker.internal, ollama, loopback IPs, RFC1918 private
@@ -401,3 +402,284 @@ implemented. Publishing curated text can intentionally disclose a participant's
 idea; hosts remain responsible for reviewing it for identifying or sensitive
 content. There is no automated privacy redaction. Tests mock inference; live model
 interpretation and a full assistive-technology audit remain human checks.
+
+## ADR-013 — Grounded Theme Descriptions
+
+**Status: Implemented — October 27, 2026**
+
+Investigation found that the original Ollama prompt and strict schema only
+requested `title` and `question_ids`; parsing rejected extra fields. The generation
+route explicitly inserted an empty description, despite storage and host/public
+templates already supporting descriptions. No schema migration was needed.
+
+The schema now requires `title`, `description`, and `question_ids`. The prompt
+requests a concise, meaningful title and 1–3 sentences explaining common concerns
+or opportunities, recognizing competing perspectives and tradeoffs only where
+supported by cited original questions. It asks for fewer distinct themes when
+appropriate, merging redundant or substantially overlapping topics and preserving
+supported minority perspectives without inventing opinions, priorities, or consensus.
+
+Validate generated descriptions as nonempty strings of at most 1,000 characters,
+reject unsupported control characters, and reject duplicate normalized titles or
+descriptions in a batch. A later plain-text heuristic also bounds sentence count (see the description
+investigation below). These checks do not establish semantic distinctness or accuracy; hosts must review those against the source questions.
+Reject invalid batches atomically rather than silently dropping topics or sources.
+The existing 2,000-character limit for host-edited descriptions remains unchanged.
+
+The route now saves generated descriptions in the existing description column.
+Host display and edit controls already escape this text; the public template shows
+it only after approval and publication. Existing drafts, approvals, published
+content, and original participant questions are not rewritten. New generations
+still append private drafts. Manual creation, reapproval after any edit, duplicate
+request protection, and unpublishing retain their Phase 2 behavior.
+
+Increase the bounded generation budget from 700 to 1,600 tokens to accommodate
+up to five descriptions plus titles and source IDs. Retain `think: false`, the
+configured local model and endpoint, temperature 0.2, existing timeouts, explicit
+truncation rejection, response validation, and private bounded diagnostics. Longer
+output may increase generation time; timeouts and invalid output preserve existing
+themes and show the existing retry path. No automatic retry or external service is
+introduced. Tests mock inference; actual wording quality remains a host judgment.
+
+## Gathering-local question display numbers
+
+Compute `question_number` over all questions in each gathering in ascending
+`created_at, id` order, before citation filtering or the recent-question limit.
+This keeps creation order deterministic, starts each gathering at 1, and keeps
+existing numbers stable as newly timestamped participant submissions arrive.
+Use that shared query for host lists and question CSV exports. Append the CSV
+column to preserve the existing column positions. Use gathering-local numbers in model input and output (see review corrections
+below); map them back to database IDs for persisted theme source relationships. No participant
+records, keys, or stored citations are rewritten. This relies on the existing
+append-only question workflow: creation timestamps cannot be edited through the
+application. A future backdated import or question deletion would need an explicit
+numbering policy.
+
+Strengthen the description prompt to name specific subjects from each theme’s own
+citations and frame questions as possibilities rather than established facts.
+Schema validation cannot prove semantic grounding; source review remains required.
+
+## Description disappearance investigation (2026-10-27)
+
+The older generation contract requested titles and source IDs only, rejected extra
+response fields, and explicitly passed an empty string to `insert_theme`. SQLite
+stored that empty string correctly; the template renders descriptions only when
+nonempty. This was a generation/route contract issue, not a database or rendering
+loss. The current source requires and persists descriptions with a 1,600-token
+budget rather than the older 700-token title budget.
+
+Read-only container inspection found the current source predates process startup
+at 17:33:17 UTC. All 20 empty AI descriptions were created before startup
+(last at 17:32:24 UTC); all 10 later AI themes had nonempty descriptions. This
+supports legacy records as the observed blanks; it does not recover historical
+model responses. A local synthetic two-question Ollama probe completed without
+truncation and returned one validated theme with a 339-character description.
+Only counts, lengths, timestamps and validation flags were printed. No production
+generation, raw participant/model logging, database updates, restart or deployment
+was performed.
+
+Both parser and generation route now reject missing/blank descriptions, normalized
+title repetitions, and descriptions exceeding three sentences. The route repeats
+validation before persistence so an invalid batch rolls back without changing
+existing themes or sources. Sentence splitting is a plain-text heuristic (including
+an unterminated final sentence), and may treat abbreviations as boundaries; it
+cannot prove meaningfulness or factual grounding. Prompt instructions and host
+review remain responsible for semantic accuracy and preserving perspectives.
+Manual themes and host edits retain their existing optional-description behavior.
+Legacy blanks are deliberately not backfilled or republished automatically.
+
+## ADR-014 — Explicit Analysis Runs and Reversible Draft Archives
+
+**Status: Implemented, not deployed — October 27, 2026**
+
+Before schema work, `bash scripts/database.sh backup` saved
+`backups/common-ground-20261027T174713Z.db`. Independently verified SQLite integrity,
+required tables and foreign keys. Applied migration twice to an isolated copy of
+that backup: every original table record was unchanged, integrity/foreign-key
+checks passed, and no historical run membership was invented. The running database
+and service were not migrated or restarted.
+
+**Additive provenance**
+
+`analysis_runs` records the generation receipt, gathering, UTC start/completion,
+input question count, selected previous-draft action, status, and original generated
+theme count. `theme_analysis_runs` associates each newly generated theme ID with
+its run. `archived_themes` stores reversible private-draft archive metadata. No
+existing table or theme record is rewritten by migration. IDs, sources, original
+AI titles, approval/publication states, and participant submissions remain intact.
+No timestamps are used to guess old run boundaries: unassociated AI themes remain
+honestly labeled legacy suggestions with unknown runs/input counts.
+
+A run and its single-use receipt are claimed in one short write transaction before
+inference. No write lock is held across Ollama. Success inserts all new drafts and
+sources, associates them with the run, and applies the requested previous-draft
+choice in one transaction. Failure rolls back the entire batch and marks the
+receipt/run failed. Process interruption can leave a pending run; the UI labels
+it in progress or interrupted, not complete. There is no background recovery.
+Original generated counts survive explicit theme deletion; current status counts
+reflect remaining records. Unsuccessful runs have no generated count.
+
+**Previous-draft choices and concurrency**
+
+Default Archive creates metadata only for earlier unapproved AI drafts. Keep
+preserves their active state. Delete requires a separate explicit checkbox and
+removes earlier unapproved AI drafts (including archived ones) plus their dependent
+sources/run association/archive metadata. It never deletes participant questions
+or the run receipt itself. Protected manual, approved, and published themes are
+excluded. Snapshot eligible IDs/revisions when claiming the run; apply the choice
+only to matching still-unapproved AI drafts at success. Edits, approvals, restores,
+archives, ordering changes and concurrent new drafts therefore survive inference.
+
+Archive/Restore are authenticated, CSRF-protected, gathering-scoped, revision-checked
+POST operations. Both increment the theme revision to reject stale forms. Archived
+drafts remain private, keep original citations/run provenance, and require Restore
+before editing or approval. They may still be explicitly deleted with confirmation.
+Public queries and the Draft → Approved → Published workflow are unchanged.
+
+**Host disclosure design**
+
+Current Themes appears first and contains every manual or approved/published theme.
+New runs appear newest first with native `details/summary` headers showing readable
+generation time, known input count, original generated count and status counts.
+Only the newest run opens initially; theme rows stay collapsed with title, state
+and a short description preview. Old active/archived AI drafts stay under their
+original run. Approved/published history entries retain a collapsed summary and
+link to the sole editor in Current Themes, avoiding duplicate IDs or conflicting
+forms. Provenance links work in both directions with progressive enhancement.
+Legacy history is collapsed and clearly disclaims known run grouping.
+
+Theme actions retain the original global ordering (including history drafts), so
+moving across a group boundary may not visibly change that group's local order;
+position numbers identify the gathering-wide order. Save/Approve validation or
+revision errors retain HTTP 400/409, expand the affected theme/run, keep attempted
+edit text, and render escaped feedback next to the form. Success returns to the
+affected theme. Authorization/CSRF/not-found failures retain their existing policy.
+
+The existing palette, focus outlines, high contrast and 44px targets extend to
+new summaries and radio choices. A small external script opens linked disclosure
+targets; a shared formatter now displays dates in the browser's timezone (ADR-015). Native
+forms/disclosures work without scripting; timestamp fallback is now the explicit
+America/New_York prototype zone (ADR-015).
+No participant/model content is logged, fetched for display from other services,
+or exposed publicly by the history UI.
+
+**Verification and limitations**
+
+Regression tests cover explicit grouping, disclosure defaults, unique IDs, Current
+Themes visibility, legacy migration, all three choices, default archive and restore,
+confirmation, failed generation, edits/approvals during inference, source/submission
+preservation, foreign-key-safe deletion, stale revisions, scope, CSRF and nearby
+error feedback. Browser-local formatting and full assistive-technology behavior
+still need a manual browser audit; this environment has no browser runner. History
+loads all records without pagination. Run metadata does not store a full input-text
+snapshot, model-response archive, or reviewer revision history. Input counts refer
+to the actual question list sent to inference; citations continue using stable DB
+IDs and gathering-local question numbers in displays. No production migration,
+deployment, commit, or automatic historical cleanup was performed.
+
+## ADR-015 — Automatic Browser Timezones for System Timestamp Display
+
+**Status: Implemented, not deployed — October 27, 2026**
+
+Use `Intl.DateTimeFormat().resolvedOptions().timeZone` to detect each browser's
+IANA timezone. Validate the detected zone with Intl and explicitly pass it to the
+display formatter. Never derive the user's zone from the container, assume Eastern
+Time for everyone, or send browser timezone information to the server. Native Intl
+applies daylight-saving transitions. Format with English month names, numeric
+calendar date/year, 12-hour AM/PM time, and short timezone name or GMT offset:
+`Oct 27, 2026 · 1:22 PM EDT`. Tooltips show readable text and the IANA zone, without
+raw ISO timestamps or microseconds.
+
+When detection is unavailable, empty, invalid or throws, use America/New_York for
+this prototype and append the visible label `(America/New_York; fallback)`. The
+server renders the same readable, labeled fallback using explicit `ZoneInfo`, not
+the server's default timezone. This also handles no-JavaScript/no-Intl browsers.
+The existing Docker image has the required IANA timezone data; other Python hosts
+must supply that standard-library runtime data. Browsers may have different
+versions of IANA timezone rules, so very recent rule changes depend on updates.
+
+The shared Jinja timestamp macro and Python display filter normalize only emitted
+machine-readable attributes to UTC seconds. The shared external browser script
+formats all `time[data-local-time]` elements, including analysis start/completion
+and theme creation/update. No schema changes, timestamp migrations, UTC storage
+changes, or CSV changes are introduced. Invalid/missing or timezone-naive values
+show `Time unavailable`; they are not guessed or echoed. The client rejects
+impossible dates that JavaScript Date would otherwise normalize. All markup stays
+Jinja-escaped and browser updates use `textContent`, never `innerHTML`.
+
+Gathering `when_text` is preserved verbatim as human-entered event schedule text.
+It is never interpreted as UTC or passed through this formatter. Structured event
+dates and event-specific IANA timezone configuration remain future work.
+
+Remove timestamp formatting from the analysis-specific script and load the shared
+formatter from the base template. Its disclosure/link-opening code, run grouping,
+archive behavior, forms, statuses, and existing layout/focus styles are unchanged.
+The native details/summary behavior requires no scripting.
+
+Regression coverage includes UTC-to-New-York/Los-Angeles conversion, winter/summer,
+both spring and fall DST boundaries, previous-day conversion, midnight AM,
+non-US timezone offsets, default Intl detection, detection failures, invalid and
+missing timestamps, text-only DOM updates, no-Intl fallback, shared theme/run
+rendering, and unchanged system timestamps/event text. JavaScript tests run against
+native Node.js Intl (`node tests/test_timestamps.cjs`); Node is test tooling only,
+not a production dependency. Python tests run with the complete existing suite.
+A full browser and assistive-technology audit remains manual. No service restart,
+production database write, deployment, or commit was performed.
+
+## Focused AI review corrections — local model references and single descriptions
+
+Collapsed theme summaries retain title, state and a short description preview.
+The preview is hidden with an open-state CSS selector when expanded, and host
+static full-description paragraphs are removed. Active themes retain the existing
+single edit textarea; archived themes have one read-only textarea until Restore.
+Approved/published history references continue linking to their sole Current Themes
+editor. No disclosure, grouping, archive, approval or publication transitions change.
+Public published-description rendering is unchanged.
+
+The generation route now builds a snapshot mapping from gathering-local display
+numbers to database IDs. Only local numbers and question text enter Ollama, using
+the existing input `id` and output `question_ids` field names. Prompt/schema text
+explicitly defines those as local numbers and asks for natural issue prose without
+question-number references. The parser validates returned numbers against the
+supplied inputs; before persistence the route also rejects missing, noninteger,
+boolean or unmapped sources and translates them through its request snapshot.
+The existing persistence layer independently checks selected-gathering ownership.
+Invalid batches roll back as before, without applying archive/delete choices.
+
+Database IDs, foreign keys, existing citations, submissions and historical theme
+text are not migrated or rewritten. No schema change is needed. Regression tests
+exercise separate gatherings, nonconsecutive IDs, ID/local-number collisions,
+invalid references, atomic rejection, preserved approved/published records, and
+single-description editor markup/open-state hiding. Natural-language adherence
+remains a host review responsibility; no automatic prose-number rewriting occurs.
+
+## End-to-end demonstration checkpoint verification
+
+Reviewed the complete uncommitted implementation and documentation before the
+local checkpoint `Prepare Common Ground for end-to-end demonstration`. No blocking
+runtime defects were found; corrected stale documentation statements about the
+Archive/Keep/Delete choice and explicit English 12-hour formatting. No additional
+feature changes were introduced during checkpoint preparation.
+
+The complete suite passed 167 Python tests (five dependency deprecation warnings)
+and 35 JavaScript tests using native Intl. A disposable synthetic-data application
+with the current code completed two real local Ollama analyses. Verified saved
+descriptions, database-ID mapping from local citations, newest-run disclosure
+markup, default archiving and restoration, RSVP and gathering creation, approval,
+publication, unchanged original submissions and SQLite integrity/foreign keys.
+Only counts and pass/fail flags were printed; no raw participant or model output.
+The existing live database/service was not changed or restarted.
+
+All four available SQLite backups passed read-only integrity, required-application-
+table and foreign-key checks; the existing code archive was readable. The most
+recent available database snapshot is
+`backups/common-ground-20261027T174713Z.db`. Backups remain private, ignored local
+artifacts; this checkpoint contains application code, tests and documentation only.
+
+The README includes a fictional-data demonstration sequence. A real browser and
+assistive-technology audit, fresh host review of model interpretations, and starting
+an updated local demo instance are still manual steps. Existing limitations remain:
+legacy run provenance cannot be reconstructed, history has no pagination, interrupted
+analyses require an explicit retry, and human-entered event schedules have no
+structured event-specific timezone configuration. No push or deployment is part
+of this checkpoint.

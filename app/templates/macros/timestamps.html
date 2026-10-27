@@ -1,0 +1,4 @@
+{% macro timestamp(value) -%}
+{% set display = value|timestamp_display %}
+{% if display %}<time datetime="{{ display.iso }}" data-local-time>{{ display.label }}</time>{% else %}<span class="timestamp-unavailable">Time unavailable</span>{% endif %}
+{%- endmacro %}

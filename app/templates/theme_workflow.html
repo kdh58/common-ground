@@ -1,16 +1,79 @@
 {% macro csrf() -%}<input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">{%- endmacro %}
 {% macro version(theme) -%}{{ csrf() }}<input type="hidden" name="revision" value="{{ theme.revision }}">{%- endmacro %}
+{% from 'macros/timestamps.html' import timestamp as date %}
+{% macro status(theme) -%}<strong class="theme-status theme-status-{{ theme.status }}">{{ theme.status|capitalize }}</strong>{% if theme.archived %} · Archived{% endif %}{%- endmacro %}
+{% macro theme_item(theme) %}
+<details class="theme-item" id="theme-{{ theme.id }}"{% if open_theme == theme.id %} open{% endif %}>
+<summary><span class="theme-title">{{ theme.title }}</span> {{ status(theme) }}{% if theme.description %}<span class="theme-preview">{{ theme.description|truncate(150) }}</span>{% endif %}</summary>
+<div class="theme-content">
+<p>{{ 'AI-generated suggestion' if theme.origin == 'ai' else 'Host-created theme' }} · Position {{ theme.display_position }}</p>
+{% if theme.origin == 'ai' %}<p>Original AI suggestion: {{ theme.ai_original_title }}<br>
+{% if theme.run_id %}<a href="#analysis-{{ theme.run_id }}" data-open-analysis="analysis-{{ theme.run_id }}">Original analysis #{{ theme.run_id }}</a>{% else %}Legacy suggestion — analysis run unknown{% endif %}</p>{% endif %}
+<p>Created: {{ date(theme.created_at) }}<br>Updated: {{ date(theme.updated_at) }}</p>
+{% if theme.question_ids %}
+<details><summary>Review cited original questions ({{ theme.question_ids|length }})</summary>
+<ul>{% for q in questions %}{% if q.id in theme.question_ids %}<li>Original question #{{ q.question_number }}: {{ q.question }}</li>{% endif %}{% endfor %}</ul>
+</details>
+{% endif %}
+{% if theme.archived %}
+<label for="theme-description-{{ theme.id }}">Description (archived; restore to edit)</label><textarea id="theme-description-{{ theme.id }}" readonly rows="3">{{ theme.description }}</textarea>
+{% else %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/edit" method="post" aria-label="Edit theme {{ theme.display_position }}"{% if error_theme == theme.id and error_action == 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>
+{{ version(theme) }}
+<label for="theme-title-{{ theme.id }}">Title</label><input id="theme-title-{{ theme.id }}" name="title" maxlength="120" value="{{ submitted.title if error_theme == theme.id and error_action == 'edit' else theme.title }}" required>
+<label for="theme-description-{{ theme.id }}">Description (optional, plain text)</label><textarea id="theme-description-{{ theme.id }}" name="description" maxlength="2000" rows="3">{{ submitted.description if error_theme == theme.id and error_action == 'edit' else theme.description }}</textarea>
+<button type="submit">Save as draft{% if theme.status != 'draft' %} and remove approval{% endif %}</button>
+{% if error_theme == theme.id and error_action == 'edit' %}<p id="theme-feedback-{{ theme.id }}" class="notice" role="alert">{{ error }}</p>{% endif %}
+</form>
+{% endif %}
+<div class="theme-actions">
+{% if theme.archived %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/restore" method="post"{% if error_theme == theme.id and error_action != 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>{{ version(theme) }}<button type="submit">Restore draft</button></form>
+{% elif theme.status == 'draft' %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/approve" method="post"{% if error_theme == theme.id and error_action != 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>{{ version(theme) }}<button type="submit" aria-label="Approve theme {{ theme.display_position }}: {{ theme.title }}">Approve theme</button></form>
+{% if theme.origin == 'ai' %}<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/archive" method="post"{% if error_theme == theme.id and error_action != 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>{{ version(theme) }}<button type="submit" class="secondary">Archive draft</button></form>{% endif %}
+{% elif theme.status == 'approved' %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/publish" method="post"{% if error_theme == theme.id and error_action != 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>{{ version(theme) }}<button type="submit" aria-label="Publish theme {{ theme.display_position }}: {{ theme.title }}">Publish theme</button></form>
+{% else %}
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/unpublish" method="post"{% if error_theme == theme.id and error_action != 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>{{ version(theme) }}<button type="submit" class="secondary" aria-label="Unpublish theme {{ theme.display_position }}: {{ theme.title }}">Unpublish theme</button></form>
+{% endif %}
+{% if not theme.archived %}
+{% if theme.can_move_up %}<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/up" method="post"{% if error_theme == theme.id and error_action != 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>{{ version(theme) }}<button type="submit" class="secondary" aria-label="Move theme {{ theme.display_position }} up: {{ theme.title }}">Move up</button></form>{% endif %}
+{% if theme.can_move_down %}<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/down" method="post"{% if error_theme == theme.id and error_action != 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>{{ version(theme) }}<button type="submit" class="secondary" aria-label="Move theme {{ theme.display_position }} down: {{ theme.title }}">Move down</button></form>{% endif %}
+{% endif %}
+</div>
+{% if error_theme == theme.id and error_action != 'edit' %}<p id="theme-feedback-{{ theme.id }}" class="notice" role="alert">{{ error }}</p>{% endif %}
+{% if theme.status == 'draft' %}
+<details class="theme-delete"><summary>Delete unapproved draft {{ theme.display_position }}</summary>
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/delete" method="post"{% if error_theme == theme.id and error_action != 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>{{ version(theme) }}
+<p>Deletion permanently removes this draft. Original participant questions remain intact.</p>
+<label class="confirmation"><input type="checkbox" name="confirmation" value="delete" required> I confirm deletion of this draft: {{ theme.title }}</label>
+<button type="submit" class="secondary">Delete draft permanently</button>
+</form></details>
+{% endif %}
+</div>
+</details>
+{% endmacro %}
+{% macro history_theme(theme) %}
+{% if theme.status in ('approved', 'published') %}
+<details class="theme-item history-current">
+<summary><span class="theme-title">{{ theme.title }}</span> {{ status(theme) }}{% if theme.description %}<span class="theme-preview">{{ theme.description|truncate(150) }}</span>{% endif %}</summary>
+<div class="theme-content">
+<p><a href="#theme-{{ theme.id }}" data-open-theme="theme-{{ theme.id }}">Review sources and manage this theme in Current Themes</a></p>
+</div>
+</details>
+{% else %}{{ theme_item(theme) }}{% endif %}
+{% endmacro %}
 <section class="card theme-workspace" id="discussion-themes" aria-labelledby="discussion-themes-heading">
 <h2 id="discussion-themes-heading">Discussion themes</h2>
 <p>AI suggestions may be inaccurate. Review them against the original questions. They are not factual conclusions or evidence of community consensus.</p>
-<p><strong>Draft:</strong> private, needs review. <strong>Approved:</strong> reviewed, still private. <strong>Published:</strong> visible as a curated discussion topic.</p>
-<p>Editing any theme saves a private draft and removes its approval and publication. Approve it again, then publish it to make the revised text public. Moving a theme changes display order only.</p>
-<form action="/host/gatherings/{{ gathering.id }}/themes" method="post">
-{{ csrf() }}<input type="hidden" name="request_key" value="{{ generation_key }}">
-<button type="submit">Suggest Discussion Themes</button>
-<p>Uses only this gathering's questions with local Ollama. Saves new private drafts; existing topics are preserved.</p>
-</form>
-{% if error %}<p class="notice" role="status">{{ error }}</p>{% endif %}
+<p><strong>Draft:</strong> private, needs review. <strong>Approved:</strong> reviewed, still private. <strong>Published:</strong> visible as a curated discussion topic. <strong>Archived:</strong> an inactive AI draft, private and reversible.</p>
+<p>Editing any theme saves a private draft and removes its approval and publication. Approve it again, then publish it to make the revised text public. Moving a theme changes the gathering's overall display order only.</p>
+<section aria-labelledby="current-themes-heading">
+<h3 id="current-themes-heading">Current Themes</h3>
+<p>Manual themes and all approved or published themes stay here, regardless of analysis age.</p>
+{% for theme in current_themes %}{{ theme_item(theme) }}{% else %}<p>No current themes yet. Review an AI suggestion below or create a manual theme.</p>{% endfor %}
+</section>
 <h3>Create a theme without AI</h3>
 <form action="/host/gatherings/{{ gathering.id }}/themes/manual" method="post">
 {{ csrf() }}<input type="hidden" name="request_key" value="{{ manual_key }}">
@@ -18,45 +81,39 @@
 <label for="manual-theme-description">Description (optional, plain text)</label><textarea id="manual-theme-description" name="description" maxlength="2000" rows="3"></textarea>
 <button type="submit">Create manual draft</button>
 </form>
-<h3>Saved themes — review and publication</h3>
-{% if themes %}<ol class="theme-list">
-{% for theme in themes %}
-<li class="theme-item" id="theme-{{ theme.id }}">
-<h4>{{ theme.title }}</h4>
-<p><strong class="theme-status theme-status-{{ theme.status }}">{{ theme.status|capitalize }}</strong> · {{ 'AI-generated suggestion' if theme.origin == 'ai' else 'Host-created theme' }} · Position {{ loop.index }}</p>
-{% if theme.description %}<p class="theme-description">{{ theme.description }}</p>{% endif %}
-{% if theme.origin == 'ai' %}<p>Original AI suggestion: {{ theme.ai_original_title }}</p>{% endif %}
-<p>Created: <time datetime="{{ theme.created_at }}">{{ theme.created_at }}</time><br>Updated: <time datetime="{{ theme.updated_at }}">{{ theme.updated_at }}</time></p>
-{% if theme.question_ids %}
-<details><summary>Review cited original questions ({{ theme.question_ids|length }})</summary>
-<ul>{% for q in questions %}{% if q.id in theme.question_ids %}<li>Original question #{{ q.id }}: {{ q.question }}</li>{% endif %}{% endfor %}</ul>
+<h3>New AI analysis</h3>
+<form action="/host/gatherings/{{ gathering.id }}/themes" method="post">
+{{ csrf() }}<input type="hidden" name="request_key" value="{{ generation_key }}">
+<fieldset><legend>Previous unapproved AI drafts</legend>
+<label class="draft-choice"><input type="radio" name="draft_action" value="archive" checked> Archive previous unapproved AI drafts (default)</label>
+<label class="draft-choice"><input type="radio" name="draft_action" value="keep"> Keep existing drafts active</label>
+<label class="draft-choice"><input type="radio" name="draft_action" value="delete"> Delete previous unapproved AI drafts</label>
+<label class="confirmation"><input type="checkbox" name="delete_confirmation" value="delete"> I confirm permanent deletion of previous unapproved AI drafts if Delete is selected.</label>
+<p>Applied only after a successful analysis. Archive can be reversed. Delete also includes archived drafts. Manual, approved, published, and drafts changed during analysis are preserved.</p>
+</fieldset>
+<button type="submit">Suggest Discussion Themes</button>
+<p>Uses only this gathering's questions with local Ollama. Suggests distinct titles with 1–3 sentence descriptions, including differing perspectives and tradeoffs where supported. Saves new private drafts.</p>
+{% if error and not error_theme %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+</form>
+<h3>AI analysis history</h3>
+<p>Newest analysis first. Open a run, then a theme, to review its sources and actions.</p>
+{% for run in analysis_runs %}
+{% set affected = run.themes|selectattr('id', 'equalto', open_theme)|list %}
+<details class="analysis-run" id="analysis-{{ run.id }}"{% if affected or (loop.first and not open_theme) %} open{% endif %}>
+<summary>Analysis #{{ run.id }} · {{ date(run.created_at) }}<span class="analysis-meta">{{ run.question_count }} questions · {{ run.generated_theme_count if run.generated_theme_count is not none else run.themes|length }} themes generated · {{ run.status_label }}</span></summary>
+<div class="analysis-content">
+<p>Previous drafts: {{ run.draft_action|capitalize }}. {% if run.completed_at %}Finished: {{ date(run.completed_at) }}{% endif %}</p>
+{% for theme in run.themes %}{{ history_theme(theme) }}{% else %}<p>No saved themes in this run.</p>{% endfor %}
+</div>
+</details>
+{% endfor %}
+{% if legacy_themes %}
+<details class="analysis-run" id="analysis-legacy"{% if legacy_themes|selectattr('id', 'equalto', open_theme)|list %} open{% endif %}>
+<summary>Legacy suggestions — analysis run unknown<span class="analysis-meta">Question count unknown · {{ legacy_themes|length }} themes · Original run membership and generation time not recorded</span></summary>
+<p>These suggestions predate run tracking. They are not assumed to come from one analysis.</p>
+{% for theme in legacy_themes %}{{ history_theme(theme) }}{% endfor %}
 </details>
 {% endif %}
-<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/edit" method="post" aria-label="Edit theme {{ loop.index }}">
-{{ version(theme) }}
-<label for="theme-title-{{ theme.id }}">Title</label><input id="theme-title-{{ theme.id }}" name="title" maxlength="120" value="{{ theme.title }}" required>
-<label for="theme-description-{{ theme.id }}">Description (optional, plain text)</label><textarea id="theme-description-{{ theme.id }}" name="description" maxlength="2000" rows="3">{{ theme.description }}</textarea>
-<button type="submit">Save as draft{% if theme.status != 'draft' %} and remove approval{% endif %}</button>
-</form>
-<div class="theme-actions">
-{% if theme.status == 'draft' %}
-<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/approve" method="post">{{ version(theme) }}<button type="submit" aria-label="Approve theme {{ loop.index }}: {{ theme.title }}">Approve theme</button></form>
-{% elif theme.status == 'approved' %}
-<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/publish" method="post">{{ version(theme) }}<button type="submit" aria-label="Publish theme {{ loop.index }}: {{ theme.title }}">Publish theme</button></form>
-{% else %}
-<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/unpublish" method="post">{{ version(theme) }}<button type="submit" class="secondary" aria-label="Unpublish theme {{ loop.index }}: {{ theme.title }}">Unpublish theme</button></form>
-{% endif %}
-{% if not loop.first %}<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/up" method="post">{{ version(theme) }}<button type="submit" class="secondary" aria-label="Move theme {{ loop.index }} up: {{ theme.title }}">Move up</button></form>{% endif %}
-{% if not loop.last %}<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/down" method="post">{{ version(theme) }}<button type="submit" class="secondary" aria-label="Move theme {{ loop.index }} down: {{ theme.title }}">Move down</button></form>{% endif %}
-</div>
-{% if theme.status == 'draft' %}
-<details class="theme-delete"><summary>Delete unapproved draft {{ loop.index }}</summary>
-<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/delete" method="post">{{ version(theme) }}
-<p>Deletion permanently removes this draft. Original participant questions remain intact.</p>
-<label class="confirmation"><input type="checkbox" name="confirmation" value="delete" required> I confirm deletion of this draft: {{ theme.title }}</label>
-<button type="submit" class="secondary">Delete draft permanently</button>
-</form></details>
-{% endif %}
-</li>
-{% endfor %}</ol>{% else %}<p>No saved themes yet. Generate suggestions or create a manual draft.</p>{% endif %}
+{% if not analysis_runs and not legacy_themes %}<p>No AI analyses yet.</p>{% endif %}
 </section>
+<script src="/static/theme-workflow.js" defer></script>

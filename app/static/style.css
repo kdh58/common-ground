@@ -54,3 +54,18 @@
   .theme-item { padding: 12px; }
   .theme-list { padding-left: 1rem; }
 }
+
+/* Analysis history uses native disclosures; Current Themes stays outside history. */
+.theme-workspace .theme-item { margin-block: 12px; padding: 0; }
+.theme-workspace .theme-item > summary { padding: 14px; font-size: 1rem; }
+.theme-title { font-size: 1.15rem; font-weight: 750; }
+.theme-preview, .analysis-meta { display: block; margin-top: 6px; font-size: 1rem; font-weight: 400; color: #43554f; }
+.theme-content, .analysis-content { padding: 4px 16px 16px; }
+.analysis-run { border: 1px solid #607a6e; border-radius: 12px; margin-block: 16px; overflow-wrap: anywhere; }
+.host-workspace .analysis-run > summary { padding: 16px; }
+.analysis-run > p, #analysis-legacy > .theme-item { margin: 16px; }
+.host-workspace .draft-choice { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.host-workspace .draft-choice input { flex: 0 0 24px; width: 24px; margin: 0; accent-color: #1c604e; }
+
+/* Expanded themes show their description only in the review textarea. */
+.theme-item[open] > summary > .theme-preview { display: none; }
