@@ -1,0 +1,137 @@
+{
+  "dataset": "common-ground-fictional-december-2026-v1",
+  "label": "Fictional demonstration data for an independent Resonance Technical Fellow application proof of concept; not genuine community contributions or real events.",
+  "resources_verified_on": "2026-10-28",
+  "gatherings": [
+    {
+      "key": "small-businesses",
+      "title": "Supporting Local Small Businesses",
+      "description": "Fictional demonstration event. Join a welcoming conversation about helping small businesses thrive, sharing useful services, and choosing affordable technology. Bring practical ideas and concerns; no business experience is needed. All questions are fictional examples for an independent proof of concept.",
+      "location": "Fictional venue: Maple Crossing Community Hub, Workshop Room",
+      "date": "2026-12-08", "start": "18:30", "end": "20:00", "timezone": "America/New_York",
+      "agenda": [["Welcome, demonstration context and introductions",10],["What helps local businesses thrive?",15],["Entrepreneur experiences and barriers",20],["Shared services and practical technology choices",20],["Compare priorities and affordable experiments",15],["Recap, open questions and possible next steps",10]],
+      "resources": [
+        ["U.S. Small Business Administration: counseling and local mentoring", "https://www.sba.gov/counseling/"],
+        ["NIST: Small Business Cybersecurity Corner", "https://www.nist.gov/itl/smallbusinesscyber"]
+      ],
+      "questions": [
+        "Could small shops share bookkeeping or delivery services without losing control of their own businesses?",
+        "If I wanted to turn a weekend hobby into a business, where could I get help understanding the first steps?",
+        "How could a local business directory stay useful without becoming another paid advertising platform?",
+        "What would help customers discover businesses outside the main shopping street?",
+        "Could someone show beginners how to set up online ordering without paying for tools they do not need?",
+        "How would shared marketing include home-based businesses and people who do not use social media?",
+        "Would buying supplies together save enough money to justify the time spent organizing it?",
+        "What safeguards would keep customer details private if several businesses used the same software?",
+        "Could businesses offer paid learning opportunities without taking on commitments they cannot afford?",
+        "How can we support local shops while recognizing that some households need the lowest available prices?",
+        "Would evening business advice sessions be useful for people who also have another job?",
+        "How would we tell whether a small technology trial helped, rather than just adding more work?"
+      ]
+    },
+    {
+      "key": "aging-well",
+      "title": "Aging Well in Our Community",
+      "description": "Fictional demonstration event. Explore ways to support independent living, meaningful connection, and accessible everyday services as people age. Older adults, caregivers, and curious neighbors are welcome in this imagined conversation. All questions are fictional, not reports of actual needs.",
+      "location": "Fictional venue: Willow Commons Center, Ground-Floor Conversation Room",
+      "date": "2026-12-10", "start": "14:00", "end": "15:30", "timezone": "America/New_York",
+      "agenda": [["Welcome, demonstration context and listening agreements",10],["What does aging well mean to us?",15],["Independent living, access and transportation",20],["Connection, caregiver support and useful technology",20],["Prioritize inclusive, manageable first steps",15],["Recap and unanswered questions",10]],
+      "resources": [
+        ["Administration for Community Living: Eldercare Locator", "https://eldercare.acl.gov/home"],
+        ["Administration for Community Living: Area Agencies on Aging", "https://acl.gov/programs/aging-and-disability-networks/area-agencies-aging"]
+      ],
+      "questions": [
+        "Could a volunteer ride program work for people who need help getting to an appointment, not just a lift?",
+        "How can someone ask for occasional help without feeling they are giving up their independence?",
+        "Would a regular drop-in meal be more welcoming than a club that requires joining in advance?",
+        "Could essential service information remain available by phone and on paper as well as online?",
+        "What would make a tablet lesson comfortable for someone who is worried about pressing the wrong button?",
+        "How could neighbors notice isolation without monitoring people who prefer privacy?",
+        "Could caregivers join community activities when they cannot leave the person they support alone?",
+        "Who would check that volunteer helpers are trustworthy and understand their boundaries?",
+        "How can housing conversations include renters who cannot make changes to their homes?",
+        "Would an accessibility walk help identify small obstacles that younger people might overlook?",
+        "What could we offer people who want to contribute skills rather than be treated only as recipients of help?",
+        "How would we decide which support can be volunteer-led and which needs trained professionals?"
+      ]
+    },
+    {
+      "key": "young-voices",
+      "title": "Young Voices, Community Futures",
+      "description": "Fictional demonstration event. Make space for young perspectives on learning, work, recreation, and local decisions. This imagined gathering invites young people and adults to listen, compare priorities, and explore practical opportunities together. No questions represent real young participants.",
+      "location": "Fictional venue: Cedar Bridge Learning Center, Creative Studio",
+      "date": "2026-12-12", "start": "10:00", "end": "11:30", "timezone": "America/New_York",
+      "agenda": [["Welcome, demonstration context and shared ground rules",10],["Young perspectives on community life",15],["Learning, employment and pathways into work",20],["Recreation, belonging and meaningful participation",20],["Choose priorities and design a small youth-led project",15],["Recap and how feedback would be followed up",10]],
+      "resources": [
+        ["Tufts University CIRCLE: Understanding Youth Civic Engagement", "https://circle.tufts.edu/understanding-youth-civic-engagement"],
+        ["U.S. Bureau of Labor Statistics: Occupational Outlook Handbook", "https://www.bls.gov/ooh/"]
+      ],
+      "questions": [
+        "If young people suggest changes, how would we find out what happened to our ideas afterward?",
+        "Could a youth advisory group have a small budget it can actually make decisions about?",
+        "How could community projects include teenagers who do not enjoy speaking in front of adults?",
+        "Would local employers offer short paid placements so trying a career does not depend on family income?",
+        "Could there be somewhere to spend time after school without being expected to buy anything?",
+        "How can activities fit around part-time jobs, caring responsibilities, and unreliable transport?",
+        "What support would help a young person organize an event for the first time?",
+        "Could arts, games, and sport receive attention alongside academic and technology programs?",
+        "How would we involve young people who have left school or do not belong to an established group?",
+        "What privacy rules would protect younger participants when ideas are collected online?",
+        "Could adults offer mentoring while leaving room for young people to disagree with their advice?",
+        "How should a youth-led project show what it learned if the first attempt does not work?"
+      ]
+    },
+    {
+      "key": "food-resilience",
+      "title": "Food, Farms, and Community Resilience",
+      "description": "Fictional demonstration event. Bring ideas about affordable food, local growing, farmers markets, and preparing for disruptions. This imagined conversation welcomes growers, shoppers, and beginners to explore fair, practical options. All participant questions are fictional demonstration content.",
+      "location": "Fictional venue: Orchard Lane Community Hall, Garden Classroom",
+      "date": "2026-12-15", "start": "18:30", "end": "20:00", "timezone": "America/New_York",
+      "agenda": [["Welcome, demonstration context and introductions",10],["Map perspectives on food access and local growing",15],["Farms, markets and affordability tradeoffs",20],["Community gardens, surplus food and disruption planning",20],["Compare feasible projects and shared responsibilities",15],["Recap, open questions and next steps",10]],
+      "resources": [
+        ["USDA Agricultural Marketing Service: Local Food Directories", "https://www.ams.usda.gov/services/local-regional/food-directories"],
+        ["U.S. Environmental Protection Agency: Sustainable Management of Food", "https://www.epa.gov/sustainable-management-food"]
+      ],
+      "questions": [
+        "How could a farmers market remain affordable for shoppers while paying growers fairly?",
+        "Could a community garden reserve accessible beds for people who cannot kneel or lift heavy tools?",
+        "Who would water shared plots during holidays, and what happens if volunteers stop coming?",
+        "Would a neighborhood produce pickup point help people who cannot reach a market during its opening hours?",
+        "How could surplus food be shared safely without making recipients feel singled out?",
+        "Could renters and people without outdoor space take part in growing food?",
+        "What would we need to know about soil safety before planting on an unused site?",
+        "Would shared cold storage be practical for small growers, or too expensive to maintain?",
+        "How could food activities include different cultural preferences and dietary needs?",
+        "What should a community food plan prioritize if a storm interrupts deliveries for several days?",
+        "Could a simple phone or paper ordering system work alongside an online one?",
+        "How would we compare a garden project with other ways of improving food access before committing money?"
+      ]
+    },
+    {
+      "key": "community-ai",
+      "title": "AI and Our Community's Future",
+      "description": "Fictional demonstration event. Explore whether, where, and how AI could serve community priorities under local oversight. No technical background is needed, and deciding not to use AI is a valid option. Questions about data, learning, and work are fictional examples, not genuine resident submissions.",
+      "location": "Fictional venue: Harbor Grove Civic Workshop, Discussion Room",
+      "date": "2026-12-17", "start": "18:30", "end": "20:00", "timezone": "America/New_York",
+      "agenda": [["Welcome, demonstration context and plain-language AI introduction",10],["Community hopes, concerns and possible non-AI alternatives",15],["Local oversight, data ownership and privacy",20],["Education, employment and accessible participation",20],["Define safeguards and criteria for any small trial",15],["Recap, unresolved disagreements and next steps",10]],
+      "resources": [
+        ["NIST: AI Risk Management Framework", "https://www.nist.gov/itl/ai-risk-management-framework"],
+        ["OECD: AI Principles", "https://oecd.ai/en/ai-principles"]
+      ],
+      "questions": [
+        "What would community-owned AI mean in practice, and who would have the power to turn it off?",
+        "Could we try a useful service without sending personal information to a large technology company?",
+        "How would people who do not use computers have a say in decisions about an AI project?",
+        "Who would own the information gathered through a community tool, and could contributors ask for it to be removed?",
+        "If an AI summary misses a minority viewpoint, how could someone challenge and correct it?",
+        "Could schools teach people how to check AI answers without making paid software a requirement?",
+        "How should workers help shape a trial that might change their daily tasks or future jobs?",
+        "What would count as a good reason to use AI instead of a simpler website or a person answering the phone?",
+        "Would local oversight still mean anything if the underlying model and hosting were controlled elsewhere?",
+        "How could we compare costs, energy use, and accessibility before deciding whether a pilot is worthwhile?",
+        "What should never be entered into a community AI system, even if someone volunteers to share it?",
+        "Could a trial have a clear end date and independent review rather than becoming permanent by default?"
+      ]
+    }
+  ]
+}

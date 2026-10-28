@@ -729,3 +729,33 @@ the actual web test image, all 72 JavaScript tests, and `git diff --check` passe
 This source checkpoint supersedes earlier uncommitted-status notes. Database files,
 backups, credentials and environment files are excluded; publishing source does
 not deploy the application or modify the live database.
+
+## Opt-in fictional demonstration gatherings
+
+The five December 2026 demonstration events and 60 fictional questions live in
+[app/demo_gatherings.json](app/demo_gatherings.json). All venues/events/questions
+are explicitly fictional, for the independent Resonance Technical Fellow proof of
+concept. No real participants, fake RSVPs or AI analyses are generated.
+
+The standalone `python3 -m app.seed_demo --database /explicit/local/file.db` defaults
+to read-only dry-run and prints full proposed content, provisional IDs, counts and
+a database fingerprint. Apply additionally requires `--apply`, local-demo operator
+confirmation, a separate independently verified backup/hash and the reviewed
+fingerprint. Stable registry keys make repeated applications no-ops; host edits and
+unregistered title collisions are never overwritten. It never runs at startup.
+See [the complete safety, resource-verification and rehearsal workflow](docs/DEMO_SEEDING.md).
+
+After two successful disposable rehearsals, the five gatherings were explicitly
+approved and applied to the active local Docker database: **7 gatherings and 94
+questions**, with 30 new agenda items, ten resources and five stable registry rows.
+All 34 original questions and all existing themes, analyses, citations, facilitation
+notes and RSVPs were preserved. A post-apply dry-run proposed zero additions. No
+DigitalOcean or production data was changed and no AI analysis was generated.
+
+The source checkpoint includes only the manifest, opt-in CLI, tests and docs. Local
+SQLite files, backups, generated receipts, credentials and environment files remain
+excluded from Git. The latest post-seed snapshot is
+`backups/common-ground-20261028T175401Z.db`; integrity and foreign-key checks passed
+with all seven gatherings, 94 questions and five recognized seed entries. The prior
+pre-apply snapshot `backups/common-ground-20261028T174657Z.db` remains available for
+recovery. See the workflow document for verification details and limitations.

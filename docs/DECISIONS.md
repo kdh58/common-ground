@@ -1264,3 +1264,38 @@ checks. Publish only source, tests and documentation; retain all SQLite files,
 backups, secrets and environment files outside Git. Earlier uncommitted-status
 notes describe earlier task stages. Source publication does not authorize or
 perform deployment, live migration or live scheduling changes.
+
+
+## Explicit fictional demonstration seed and completed local application
+
+Keep the December 2026 demonstration dataset in a versioned JSON manifest and a
+standalone opt-in CLI. Do not connect it to application startup, migrations or HTTP
+routes. Dry-run is read-only and reports full content, provisional IDs, table counts
+and a logical database fingerprint. Apply requires explicit local-demo confirmation,
+a separate independently verified backup/hash and the reviewed target fingerprint.
+Check exact target/backup equality inside a foreign-key-enforced write transaction.
+Never infer IDs or adopt existing records from approximate titles.
+
+Use `demonstration_seed_items` stable keys and allocated child-ID mappings for
+idempotency. Create this registry only on explicit apply. Preserve existing rows;
+refuse edited seed data, changed definitions and unregistered title collisions
+rather than overwriting or repairing them. Label the fictional events, venues and
+all questions. Use verified public background resources without implying publisher
+endorsement. Generate no RSVPs, AI themes, analysis runs or Ollama requests.
+
+Disposable double-apply testing established idempotency and rollback safety. The
+user then explicitly approved the unchanged dataset for the active local Docker
+SQLite database. The guarded apply produced seven gatherings and 94 questions;
+all 34 original questions and all preexisting themes, analyses, citations, coverage,
+facilitation notes, RSVPs and gathering values were preserved. New gathering IDs
+are 3–7, questions 41–100, agenda items 10–39 and resources 1–10. A post-apply dry-run
+proposed zero additional changes. No production or DigitalOcean data was touched.
+
+The latest post-seed online backup is
+`backups/common-ground-20261028T175401Z.db`; integrity/FK checks passed with seven
+gatherings, 94 questions and five recognized seed entries. The pre-apply snapshot
+and application/verification receipts remain local and Git-ignored. Source
+publication includes only the manifest, CLI, tests and documentation. It does not
+regenerate data or deploy the service. Known limits: the local-demo flag is an
+operator assertion, resource URLs can change, and intentional host edits require
+manual review before reusing a seed definition.
