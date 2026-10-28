@@ -115,8 +115,8 @@
 <strong>Ollama is analyzing your discussion ideas…</strong>
 <p>Identifying common themes and preparing suggestions. This may take a little while.</p>
 </div>
+<div{% if ai_error or (error and not error_theme and not error_run and error_action != 'manual') %} class="notice"{% endif %} role="alert" aria-atomic="true" data-ai-result>
 {% if ai_error %}
-<div class="notice" role="alert" data-ai-result>
 {% if ai_error == 'standby' %}
 <h4>AI assistance is currently on standby</h4>
 <p>Common Ground is available, but its AI discussion assistant is intentionally offline when not needed.</p>
@@ -129,10 +129,11 @@
 <p>Something interrupted the analysis. Please try again, or contact the demonstration host if the problem continues.</p>
 {% if ai_error == 'timeout' %}<p>The analysis request timed out. Please try again.</p>{% endif %}
 {% endif %}
-</div>
+{% elif error and not error_theme and not error_run and error_action != 'manual' %}
+<p>{{ error }}</p>
 {% endif %}
+</div>
 <p>Uses only this gathering's questions with local Ollama. Creates a new private analysis with draft themes and facilitation notes; existing analyses and themes are unchanged.</p>
-{% if error and not error_theme and not error_run and error_action != 'manual' %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
 </form>
 <h3>AI analysis history</h3>
 <p>Active analyses first, newest first; inactive analyses follow, newest first. Open a run, then a theme, to review its sources and actions.</p>
