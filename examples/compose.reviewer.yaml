@@ -1,0 +1,22 @@
+# Standalone disposable reviewer setup; never layer over the operational Compose file.
+services:
+  web:
+    build:
+      context: ..
+    ports:
+      - "127.0.0.1:${REVIEW_PORT:-18080}:8000"
+    environment:
+      DATABASE_PATH: /data/reviewer.db
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Generate a separate reviewer password}
+      SESSION_SECRET: ${SESSION_SECRET:?Generate a separate reviewer session secret}
+      # No private inference hardware is needed. Loopback is inside this container.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://127.0.0.1:1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      DEMO_CONTACT_NAME: ${DEMO_CONTACT_NAME:-Kevin}
+      DEMO_CONTACT_EMAIL: ${DEMO_CONTACT_EMAIL:-kevin@itresidentexpert.com}
+      DEMO_CONTACT_PHONE: ${DEMO_CONTACT_PHONE:-+15717584756}
+    volumes:
+      - reviewer_data:/data
+    restart: "no"
+volumes:
+  reviewer_data:

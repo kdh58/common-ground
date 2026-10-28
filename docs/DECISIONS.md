@@ -1,5 +1,10 @@
 # Common Ground — Architecture and Design Decisions
 
+This is a chronological architecture/development record. Status labels, counts and
+local operational observations describe their checkpoint, not current setup instructions.
+Use [the current README](../README.md), [reviewer guide](REVIEWER_GUIDE.md) and
+[operator boundaries](OPERATIONS.md) for current behavior and safety.
+
 **Project:** Common Ground
 
 **Document:** `docs/DECISIONS.md`

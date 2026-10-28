@@ -65,54 +65,105 @@ repeat verification, requires a fresh matching backup and reviewed fingerprint.
 No existing Library/Neighborhood question is transferred, copied or renumbered.
 No RSVPs, themes, runs, citations or private notes are generated or edited.
 
-## Local disposable workflow
+## Counts on a fresh clone
 
-Do not apply to the active local Docker database until explicitly approved.
-Start with a consistent SQLite online backup, verify it, and copy it to a disposable
-file. Do not copy an actively written database file with ordinary `cp`; WAL contents
-might be omitted. The repository's existing backup script can create a snapshot:
+Startup creates one fictional Library gathering, three agenda items and no questions
+or RSVPs. Applying this manifest before entering other content produces **six
+gatherings, 60 questions, 33 agenda items, ten resources and five registry entries**.
+The Library's schedule remains unconfirmed legacy text; the five seeded events use
+the explicit December 2026 schedules above. No AI analyses, themes or RSVPs are added.
+
+The previously documented seven gatherings and 94 questions came from an existing
+developer-local database with two gatherings and 34 questions before seeding.
+Those counts, allocated IDs and private recovery artifacts are not a reproducible
+fresh-clone fixture and are not shipped. Never obtain them by importing an existing
+installation's database. On dates after the scheduled events, they appear as Past;
+use the UI to create a separate future fictional gathering for participation tests.
+
+## Optional disposable file workflow
+
+This optional workflow is independent of the reviewer Compose volume. It requires
+Python 3.12 with the dependencies and IANA timezone data from the [test setup](../README.md#complete-tests).
+Do not point it at an existing installation or reuse any real database copy.
+From the checkout root, create an entirely new temporary directory and initialize
+only its explicitly named local file:
 
 ```sh
-bash scripts/database.sh backup backups/fresh-local.db
-# This command reads the running local database; it does not seed or migrate it.
+umask 077
+reviewer_dir="$(mktemp -d -t cg-review-seed.XXXXXXXX)"
+DATABASE_PATH="$reviewer_dir/reviewer.db" python -c 'from app.main import init_db; init_db()'
 ```
 
-Use `app.database_tools.snapshot` to make a disposable copy of that verified backup.
-Then inspect the detailed default dry-run:
+Initialization runs application schema setup on that disposable file only. No
+service is started and no environment `.env` is loaded. The following creates a
+separate SQLite online snapshot, refuses to overwrite a prior backup, checks both
+files read-only for integrity and foreign keys, and prints only the backup hash:
 
 ```sh
-python3 -m app.seed_demo --database /absolute/path/disposable.db > /tmp/demo-plan.json
-sha256sum /absolute/path/verified-pre-seed-backup.db
+python - "$reviewer_dir" <<'PYTHON'
+from pathlib import Path
+import hashlib
+import sqlite3
+import sys
+from app.database_tools import snapshot
+from app.scheduling import check_integrity
+folder = Path(sys.argv[1]).resolve()
+source = folder / 'reviewer.db'
+backup = folder / 'verified-before-seed.db'
+if not source.is_file() or backup.exists():
+    raise SystemExit('Expected fresh reviewer source and unused backup path')
+snapshot(source, backup)
+for path in (source, backup):
+    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as db:
+        check_integrity(db)
+print(hashlib.sha256(backup.read_bytes()).hexdigest())
+PYTHON
+python -m app.seed_demo --database "$reviewer_dir/reviewer.db" > "$reviewer_dir/plan.json"
 ```
 
-Independently verify the backup's integrity and foreign keys using a read-only
-SQLite connection and `app.scheduling.check_integrity`. The backup must represent
-exactly the current disposable target. After reviewing the whole JSON proposal,
-substitute its fingerprint and the independently obtained backup hash:
+Review the entire plan locally: target path, proposed content, before/after counts,
+manifest hash and `database_fingerprint`. A dry-run makes no metadata table or other
+writes. Its proposed IDs are provisional. Reports contain full content; do not
+use this workflow on private data or publish local reports. After reviewing, obtain
+the independently verified hash above and the fingerprint from that exact plan:
 
 ```sh
-python3 -m app.seed_demo --database /absolute/path/disposable.db \
+read -r -p 'Reviewed backup SHA-256: ' reviewed_backup_sha
+read -r -p 'Reviewed database_fingerprint: ' reviewed_fingerprint
+python -m app.seed_demo --database "$reviewer_dir/reviewer.db" \
   --apply --confirm-local-demo \
-  --backup /absolute/path/verified-pre-seed-backup.db \
-  --backup-sha256 REVIEWED_BACKUP_SHA256 \
-  --expect-database-fingerprint REVIEWED_DRY_RUN_FINGERPRINT
+  --backup "$reviewer_dir/verified-before-seed.db" \
+  --backup-sha256 "$reviewed_backup_sha" \
+  --expect-database-fingerprint "$reviewed_fingerprint"
+python -m app.seed_demo --database "$reviewer_dir/reviewer.db"
 ```
 
-The placeholder strings deliberately do not authorize a real write. For a second
-apply, take and independently verify a new backup of the seeded disposable target,
-review a new dry-run, then repeat with those new values. Expected result:
-`applied-no-op`, no record changes, stable IDs. A stale pre-seed backup is refused.
+Only the explicit apply writes to the new disposable database. The post-apply
+dry-run should propose zero additions. For another write apply, first create and
+verify a **new matching backup** with a new filename and review a new dry-run;
+the pre-seed backup is stale after the first apply. Changed host content/definitions
+cause refusal, not automatic repair. The local-demo flag is an operator assertion,
+not automatic production detection.
 
-Run tests without live data using the Docker test image, mounting tests only:
+To inspect this seeded file through the app, use a separate native process on an
+unused loopback port, with newly generated credentials; never attach it to an
+existing service. The basic [reviewer guide](REVIEWER_GUIDE.md) is simpler and does
+not require seeding. Stop only your own disposable process after reviewing.
+Dispose of this recorded temporary directory yourself when no longer needed;
+there is no blanket filesystem deletion or installation reset command here.
+For reviewer Compose-volume cleanup, follow the explicitly scoped destructive step
+in [the reviewer guide](REVIEWER_GUIDE.md#stop-resume-or-deliberately-reset-this-reviewer-instance).
 
-```sh
-bash scripts/test-docker-timezones.sh
-docker run --rm --network none \
-  --mount "type=bind,src=$PWD/tests,dst=/project/tests,readonly" \
-  cg-timezone-test:local python -m pytest -q -p no:cacheprovider
-node --test tests/*.cjs
-git diff --check
-```
+## Existing installations are separate
+
+Do not seed, reset or migrate an existing installation while following reviewer
+instructions. Backup/restore wrappers target operational Compose resources and
+must not be substituted for the disposable-file steps. See [operator notes](OPERATIONS.md).
+Any future existing-local-demo apply needs explicit operator review, a separate
+fresh verified backup/hash, exact target/backup equality and a reviewed fingerprint.
+Production seeding is outside this workflow.
+
+Run the complete mocked suites using [the README commands](../README.md#complete-tests).
 
 ## Resource verification
 
@@ -128,91 +179,12 @@ revising the content manifest. The CLI itself performs no network requests.
 | Food resilience | [USDA Local Food Directories](https://www.ams.usda.gov/services/local-regional/food-directories); [EPA Sustainable Management of Food](https://www.epa.gov/sustainable-management-food) |
 | Community AI | [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework); [OECD AI Principles](https://oecd.ai/en/ai-principles) |
 
-## Rehearsal and approval checkpoint
+## Historical development evidence
 
-The fresh source backup is `backups/common-ground-20261028T173249Z.db`. Integrity/FK
-checks passed. The first apply ran on
-`/tmp/cg-demo-seed-rehearsal-20261028T173249Z.db`, never the active database. A second
-apply against a new verified post-first-pass backup made no changes. All original
-values across all existing tables were preserved. No original 34 questions,
-Library/Neighborhood gatherings, 15 themes, two runs, 55 citation rows, 32 coverage
-rows, ten facilitation-note records or two RSVPs changed.
-
-| Table | Before | After disposable apply |
-|---|---:|---:|
-| gatherings | 2 | 7 |
-| questions | 34 | 94 |
-| agenda_items | 9 | 39 |
-| resources | 0 | 10 |
-| demonstration_seed_items | absent | 5 |
-| rsvps | 2 | 2 |
-
-Rehearsal IDs: gatherings 3–7; questions 41–100; agenda items 10–39; resources 1–10.
-These are not hardcoded allocation assumptions. Both HTTP directories showed all
-five new events in chronological Upcoming order across the existing two pages
-(seven upcoming events total). The detailed review report is
-`backups/demo-seed-active-proposal-20261028T173249Z.json`; the rehearsal receipts are
-`backups/demo-seed-rehearsal-first-20261028T173249Z.json` and
-`backups/demo-seed-rehearsal-second-20261028T173249Z.json`. Backups/reports remain
-excluded from Git. A read-only active dry-run matched the original backup fingerprint,
-confirming no active records or schema were changed by the rehearsal.
-
-Full verification passed 411 Python tests and 72 JavaScript tests, with five existing
-Python deprecation warnings. Integrity/FK checks and `git diff --check` passed.
-At that rehearsal checkpoint, approval was still pending and no live seed apply
-had been performed. The subsequent explicitly approved local apply is recorded below.
-
-
-## Approved local application and source checkpoint
-
-After explicit approval, the existing utility applied the unchanged reviewed
-proposal to `/data/common-ground.db` in the local `cg_common_ground_data` Docker
-volume. The Docker endpoint was a local Unix socket and the web service was bound
-to 127.0.0.1:8000. The active preflight exactly matched the reviewed proposal;
-the manifest, resource catalog, database fingerprint and verified backup matched.
-The original content and seeding implementation were not changed during publication.
-
-The guarded apply used `--apply`, `--confirm-local-demo`, the reviewed database
-fingerprint and a separately verified fresh pre-apply backup/hash. It committed only
-five new gatherings and their children/registry rows. An independent read-back
-compared every original record and schema entry with the pre-apply snapshot.
-All 34 original questions and all Library/Neighborhood values, themes, analyses,
-citations, coverage, private notes and RSVPs remained unchanged. Integrity and
-foreign-key checks passed. A subsequent CLI dry-run recognized every registry key
-and proposed zero additional changes; no second write apply was used on the active
-local database. Local UI was subsequently visually verified by the user.
-
-| Gathering ID | Gathering | Question IDs | Agenda IDs | Resource IDs |
-|---:|---|---|---|---|
-| 3 | Supporting Local Small Businesses | 41–52 | 10–15 | 1–2 |
-| 4 | Aging Well in Our Community | 53–64 | 16–21 | 3–4 |
-| 5 | Young Voices, Community Futures | 65–76 | 22–27 | 5–6 |
-| 6 | Food, Farms, and Community Resilience | 77–88 | 28–33 | 7–8 |
-| 7 | AI and Our Community's Future | 89–100 | 34–39 | 9–10 |
-
-Final counts: 7 gatherings, 94 questions, 39 agenda items, ten resources and five
-registry entries. Existing counts stayed at 15 themes, two analyses, 55 theme-source
-rows, 32 coverage rows, ten facilitation-note records and two RSVPs. All five new
-90-minute America/New_York schedules matched the proposal and sorted chronologically.
-
-Local recovery/verification artifacts, all excluded from Git:
-
-- Pre-apply backup: `backups/common-ground-20261028T174657Z.db`.
-- Apply receipt: `backups/demo-seed-active-apply-20261028T174657Z.json`.
-- Independent verification: `backups/demo-seed-active-verified-20261028T174657Z.json`.
-- Post-apply dry-run: `backups/demo-seed-active-post-apply-dry-run-20261028T174657Z.json`.
-- Latest post-seed backup: `backups/common-ground-20261028T175401Z.db`.
-
-The latest snapshot passed independent integrity/FK checks and contained seven
-gatherings, 94 questions and all five seed entries; a read-only plan proposed zero
-additions. Its SHA-256 is
-`49a56f075f7d215d2887634e17c29835e779792fa031b26790fb95a54ae6b5c3`.
-The pre-apply backup checksum was independently reverified as well. Taking the
-post-seed online backup read the active database without changing its records.
-
-This publication task does not regenerate records, run a migration, call Ollama,
-restart the service or deploy to DigitalOcean. Only source, tests and documentation
-are published. The local-demo flag remains an operator assertion, links can change
-after their verification date, and host-edited seed content deliberately requires
-manual review instead of automatic repair. Each future apply still needs a new
-matching verified backup and reviewed fingerprint.
+Earlier development rehearsals tested guarded apply, preservation, rollback and
+idempotency against disposable snapshots. A separately approved developer-local
+apply later produced seven gatherings and 94 questions while preserving existing
+records. That is historical context, not an instruction to reproduce or distribute
+the developer database. Local database snapshots, receipts and backup identifiers
+are deliberately omitted from this reviewer guide. Automated tests create their
+own fictional databases and exercise seeding without requiring those artifacts.

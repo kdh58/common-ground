@@ -1,5 +1,9 @@
 # Discussion theme response investigation
 
+Historical diagnostic record: the 700-token/45-second configuration discussed below
+is superseded. Current generation uses 4,800 tokens and a 90-second I/O timeout, plus
+a separate readiness check and inline error feedback. See [the current README](../README.md#optional-ollama-assistance).
+
 Reproduced against the running development container using the three existing
 fictional questions for gathering 1. No database writes or persistent configuration
 changes were made. No question text, model output, thinking trace, endpoint,
