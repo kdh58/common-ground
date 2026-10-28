@@ -143,3 +143,9 @@
 
 /* Author button display rules must not override the native hidden state. */
 [data-change-schedule-timezone][hidden], [data-schedule-timezone-error][hidden] { display: none; }
+
+[data-ai-loading][hidden] { display: none; }
+.ai-spinner { display: inline-block; width: 1.2em; height: 1.2em; margin-right: .5em; border: 3px solid #b8c9bd; border-top-color: #1c604e; border-radius: 50%; animation: ai-spin 1s linear infinite; vertical-align: middle; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ai-spinner { animation: none; } }
+button:disabled { opacity: .65; cursor: wait; }

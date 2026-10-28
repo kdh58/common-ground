@@ -124,7 +124,7 @@ def test_route_rejects_unmapped_model_sources_without_partial_storage(client, mo
         {'facilitation_notes': generated_notes(), 'title': 'Invalid second', 'description': 'Questions explore staffing for workshops.', 'question_ids': bad_sources},
     ])
     response = post(client, '/host/gatherings/1/themes')
-    assert response.status_code == 200 and 'invalid question references' in response.text
+    assert response.status_code == 200 and "AI analysis couldn't be completed" in response.text
     with main.connection() as db:
         for table in before:
             assert [tuple(r) for r in db.execute(f'SELECT * FROM {table}')] == before[table]

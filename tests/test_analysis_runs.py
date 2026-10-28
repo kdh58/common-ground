@@ -368,7 +368,7 @@ def test_delete_during_inference_does_not_resurrect_deleted_run(client, monkeypa
                  'question_ids': [1, 2], 'facilitation_notes': generated_notes()}]
     monkeypatch.setattr(main, 'suggest_themes', suggest)
     response = generate(client)
-    assert response.status_code == 200 and 'deleted while generation was running' in response.text
+    assert response.status_code == 200 and "AI analysis couldn't be completed" in response.text
     assert rows() == [] and runs() == []
     with main.connection() as db:
         assert db.execute("SELECT status FROM theme_requests WHERE kind='generate'").fetchone()[0] == 'failed'

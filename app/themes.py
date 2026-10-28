@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import re
+import time
+from threading import Lock
 
 import httpx
 
@@ -34,7 +36,46 @@ def _diagnose(reason, body, question_count):
     )
 
 class ThemeError(Exception):
-    pass
+    kind = "processing"
+
+
+class OllamaUnavailable(ThemeError):
+    kind = "standby"
+
+
+class AnalysisTimeout(ThemeError):
+    kind = "timeout"
+
+
+_readiness_cache = {}
+_readiness_lock = Lock()
+
+
+def require_ollama_ready(base_url, model):
+    """Check installed models without inference; briefly cache per endpoint/model."""
+    require_local_endpoint(base_url)
+    key = (base_url.rstrip('/'), model)
+    with _readiness_lock:
+        cached = _readiness_cache.get(key)
+        if cached and cached[0] > time.monotonic():
+            if cached[1]:
+                raise OllamaUnavailable("Ollama is unavailable.")
+            return
+        unavailable = False
+        try:
+            with httpx.Client(timeout=httpx.Timeout(3.0, connect=1.0), trust_env=False) as client:
+                response = client.get(key[0] + '/api/tags')
+                response.raise_for_status()
+                models = response.json()['models']
+                names = {item.get('name', item.get('model')) for item in models}
+                unavailable = model not in names and (':' in model or model + ':latest' not in names)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
+            unavailable = True
+        if len(_readiness_cache) >= 64:
+            _readiness_cache.clear()
+        _readiness_cache[key] = (time.monotonic() + (5 if unavailable else 15), unavailable)
+        if unavailable:
+            raise OllamaUnavailable("Ollama is unavailable.")
 
 
 SCHEMA = {
@@ -85,7 +126,7 @@ def validate_generated_description(title, description):
 
 def suggest_themes(questions, base_url, model):
     """Input IDs and returned question_ids are local numbers, mapped by the route."""
-    require_local_endpoint(base_url)
+    require_ollama_ready(base_url, model)
     payload = {
         "model": model, "stream": False, "format": SCHEMA, "think": False,
         "options": {"temperature": 0.2, "num_predict": 4800},
@@ -214,8 +255,14 @@ def suggest_themes(questions, base_url, model):
                 raise ValueError("Invalid sources")
             reason = "schema_mismatch"
         return result["themes"]
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        raise OllamaUnavailable("Ollama is unavailable.") from exc
     except httpx.TimeoutException as exc:
-        raise ThemeError("Ollama took too long. Please try again.") from exc
+        raise AnalysisTimeout("Ollama took too long. Please try again.") from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise OllamaUnavailable("Ollama model is unavailable.") from exc
+        raise ThemeError("Ollama returned an error. Please try again.") from exc
     except httpx.HTTPError as exc:
         raise ThemeError("Ollama is unavailable or returned an error. Check the configured endpoint and model, then try again.") from exc
     except (ValueError, KeyError, TypeError, AttributeError) as exc:

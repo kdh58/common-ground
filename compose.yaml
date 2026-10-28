@@ -6,6 +6,9 @@ services:
     environment:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      DEMO_CONTACT_NAME: ${DEMO_CONTACT_NAME:-Kevin}
+      DEMO_CONTACT_EMAIL: ${DEMO_CONTACT_EMAIL:-kevin@itresidentexpert.com}
+      DEMO_CONTACT_PHONE: ${DEMO_CONTACT_PHONE:-+15717584756}
       DATABASE_PATH: /data/common-ground.db
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}

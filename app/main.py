@@ -39,6 +39,9 @@ ROOT = Path(__file__).parent
 DB = os.environ.get("DATABASE_PATH", "/tmp/common-ground.db")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+DEMO_CONTACT_NAME = os.environ.get("DEMO_CONTACT_NAME", "Kevin")
+DEMO_CONTACT_EMAIL = os.environ.get("DEMO_CONTACT_EMAIL", "kevin@itresidentexpert.com")
+DEMO_CONTACT_PHONE = os.environ.get("DEMO_CONTACT_PHONE", "+15717584756")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
 if len(SESSION_SECRET) < 24:
@@ -316,7 +319,7 @@ def workspace_redirect(id, tab, section='', theme=None):
 
 
 def host_gathering_page(id, request, error="", error_theme=None, error_action="", submitted=None, status_code=200,
-                        tab=None, form_state=None, error_section='', error_resource=None, agenda_rows=None, error_run=None):
+                        tab=None, form_state=None, error_section='', error_resource=None, agenda_rows=None, error_run=None, ai_error=""):
     require_admin(request)
     gathering = get_gathering(id)
     action = workspace_action(request)
@@ -353,6 +356,9 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
         request.session.pop('details_saved')
     response = render("host_gathering.html", request, gathering=gathering, details_saved=details_saved,
                   questions=questions, rsvps=rsvps, themes=themes, error=error,
+                  ai_error=ai_error, demo_contact_name=DEMO_CONTACT_NAME,
+                  demo_contact_email=DEMO_CONTACT_EMAIL, demo_contact_phone=DEMO_CONTACT_PHONE,
+                  demo_contact_phone_display="(571) 758-4756" if DEMO_CONTACT_PHONE == "+15717584756" else DEMO_CONTACT_PHONE,
                   active_tab=active_tab, form_state=form_state or {},
                   error_section=error_section, error_resource=error_resource,
                   open_section=error_section or request.query_params.get('section', ''),
@@ -423,8 +429,7 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
         with connection() as db:
             workflow.finish_request(db, request_key, 'failed')
             workflow.finish_analysis(db, run_id, 'failed')
-        error = str(exc) if isinstance(exc, ThemeError) else "Ollama returned theme text that could not be saved safely. Please try again."
-        return host_gathering_page(id, request, error)
+        return host_gathering_page(id, request, ai_error=getattr(exc, "kind", "processing"))
     return workspace_redirect(id, "themes", "discussion-themes")
 
 

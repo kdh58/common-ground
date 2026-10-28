@@ -217,7 +217,7 @@ def test_route_revalidates_notes_and_rolls_back_new_themes_sources_and_notes(cli
     del invalid['facilitation_notes']
     monkeypatch.setattr(main, 'suggest_themes', lambda *_: [theme('Valid first theme'), invalid])
     response = post(client, '/host/gatherings/1/themes')
-    assert response.status_code == 200 and 'invalid facilitation notes' in response.text
+    assert response.status_code == 200 and "AI analysis couldn't be completed" in response.text
     assert rows() == before
     with main.connection() as db:
         assert db.execute('SELECT count(*) FROM theme_facilitation_notes').fetchone()[0] == 1

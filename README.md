@@ -84,6 +84,26 @@ node tests/test_timestamps.cjs
 
 ## Ollama discussion themes
 
+Theme generation shows a spinner and disables repeat submissions while Ollama
+works. Before inference the server checks the installed model inventory without
+generating text, with a one-second connection timeout and three-second I/O timeout.
+Readiness is cached per model and endpoint for 15 seconds (five seconds on failure)
+within each application process. No checks run on ordinary page views.
+
+An unreachable service or missing model shows the demonstration standby message.
+That message describes the demo's normal operating arrangement; the check cannot
+establish why a service is offline. Analysis read/write timeouts and processing
+errors instead show an analysis failure and Retry. Retry submits a new analysis
+request; existing themes and previous analyses remain available.
+
+Public demonstration contact values are configurable through
+`DEMO_CONTACT_NAME` (default `Kevin`), `DEMO_CONTACT_EMAIL` (default
+`kevin@itresidentexpert.com`), and `DEMO_CONTACT_PHONE` (default
+`+15717584756`). Use an international phone number for the clickable telephone
+link. These variables are also passed through Compose; see `.env.example`.
+JavaScript enhances the normal form submission; without it, the server still
+returns the same results and error guidance but cannot show the animated loading state.
+
 In `/host`, choose **Manage gathering** beside a gathering, then **Suggest Discussion Themes**. Only that gathering's questions are sent to Ollama; no questions means no model call. Public pages cannot generate themes. Review each draft against its cited original questions: AI output may be inaccurate and is not evidence of participant consensus.
 
 `OLLAMA_BASE_URL` defaults to `http://host.docker.internal:11434`; `OLLAMA_MODEL` defaults to `qwen3:8b`. Both can be overridden in `.env` for Compose, or through environment variables when running Python directly. The endpoint must be reachable from the app's environment (a native Python process may need `http://localhost:11434`). Use an already running local Ollama instance with the configured local model installed.

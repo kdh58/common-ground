@@ -106,10 +106,31 @@
 <button type="submit">Create manual draft</button>
 </form>
 <h3>New AI analysis</h3>
-<form action="/host/gatherings/{{ gathering.id }}/themes?tab=themes" method="post">
+<form action="/host/gatherings/{{ gathering.id }}/themes?tab=themes" method="post" data-ai-analysis>
 {{ csrf() }}<input type="hidden" name="request_key" value="{{ generation_key }}">
 
-<button type="submit">Suggest Discussion Themes</button>
+<button type="submit">{{ 'Retry' if ai_error else 'Suggest Discussion Themes' }}</button>
+<div data-ai-loading role="status" aria-live="polite" hidden>
+<span class="ai-spinner" aria-hidden="true"></span>
+<strong>Ollama is analyzing your discussion ideas…</strong>
+<p>Identifying common themes and preparing suggestions. This may take a little while.</p>
+</div>
+{% if ai_error %}
+<div class="notice" role="alert" data-ai-result>
+{% if ai_error == 'standby' %}
+<h4>AI assistance is currently on standby</h4>
+<p>Common Ground is available, but its AI discussion assistant is intentionally offline when not needed.</p>
+<p>To arrange a demonstration with AI assistance, please contact {{ demo_contact_name }}.</p>
+<p><strong>Phone:</strong> <a href="tel:{{ demo_contact_phone }}">{{ demo_contact_phone_display }}</a><br>
+<strong>Email:</strong> <a href="mailto:{{ demo_contact_email }}">{{ demo_contact_email }}</a></p>
+<p>All other Common Ground features remain available.</p>
+{% else %}
+<h4>AI analysis couldn't be completed</h4>
+<p>Something interrupted the analysis. Please try again, or contact the demonstration host if the problem continues.</p>
+{% if ai_error == 'timeout' %}<p>The analysis request timed out. Please try again.</p>{% endif %}
+{% endif %}
+</div>
+{% endif %}
 <p>Uses only this gathering's questions with local Ollama. Creates a new private analysis with draft themes and facilitation notes; existing analyses and themes are unchanged.</p>
 {% if error and not error_theme and not error_run and error_action != 'manual' %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
 </form>

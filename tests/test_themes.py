@@ -112,6 +112,7 @@ def test_failure_page_preserves_questions(client, monkeypatch):
     monkeypatch.setattr(main, 'suggest_themes', fail)
     response = post(client, '/host/gatherings/1/themes')
     assert response.status_code == 200
+    assert "AI analysis couldn't be completed" in response.text
     assert 'Please try again' in response.text
     assert 'Workshops?' in client.get('/host/gatherings/1?tab=participants').text
 

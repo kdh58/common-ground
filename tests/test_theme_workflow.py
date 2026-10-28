@@ -158,7 +158,8 @@ def test_ai_failures_save_nothing_preserve_existing(client, monkeypatch, case):
     monkeypatch.setattr(httpx.Client, 'post', ollama)
     response = post(client, '/host/gatherings/1/themes')
     assert response.status_code == 200
-    assert 'Ollama' in response.text and ('try again' in response.text or 'Please try again' in response.text)
+    assert ('AI assistance is currently on standby' if case == 'unavailable'
+            else "AI analysis couldn't be completed") in response.text
     assert rows() == before
     assert 'PRIVATE error' not in response.text
     with main.connection() as db:
