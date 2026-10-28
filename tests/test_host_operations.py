@@ -78,7 +78,7 @@ def test_protection(client, suffix):
 def test_export_scope_and_missing(client):
     assert client.get('/host/gatherings/1/export/rsvps.csv').status_code == 403
     auth(client)
-    post(client, '/host/gatherings', data=dict(title='Other', description='D', when_text='W', location='L', agenda='A'))
+    post(client, '/host/gatherings', data=dict(title='Other', description='D', gathering_date='2099-12-01', start_time='14:00', timezone='America/New_York', location='L', agenda='A'))
     post(client, '/gatherings/2/rsvp', data={'name': 'Other private name'})
     assert 'Other private name' not in client.get('/host/gatherings/1/export/rsvps.csv').text
     assert post(client, '/host/gatherings/2/resources/1/remove').status_code == 404

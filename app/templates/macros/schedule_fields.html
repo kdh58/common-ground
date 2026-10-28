@@ -1,0 +1,15 @@
+{% macro schedule_fields(values, prefix, required=false, defaults={}) -%}
+<fieldset class="schedule-fields" data-schedule-fields>
+<legend>Gathering schedule</legend>
+<p id="{{ prefix }}-schedule-help">End time is optional and must be later on the same date. Without an end time, RSVPs and questions close at the start time.</p>
+{% for name, label, kind in [('gathering_date','Date','date'),('start_time','Start time','time'),('end_time','End time (optional)','time')] %}
+<label for="{{ prefix }}-{{ name }}">{{ label }}</label>
+<input id="{{ prefix }}-{{ name }}" name="{{ name }}" type="{{ kind }}" data-schedule-value value="{{ values.get(name, defaults.get(name)) or '' }}"{% if kind == 'time' %} step="60"{% else %} min="0001-01-01" max="9999-12-31"{% endif %}{% if required and name != 'end_time' %} required{% endif %} aria-describedby="{{ prefix }}-schedule-help {{ prefix }}-zone-status">
+{% endfor %}
+<input type="hidden" name="timezone" value="{{ values.get('timezone', defaults.get('timezone')) or '' }}" data-saved-timezone="{{ defaults.get('timezone') or '' }}">
+<p id="{{ prefix }}-zone-status" data-schedule-timezone-status aria-live="polite">{% if defaults.get('timezone') %}Scheduled timezone: {{ defaults.timezone }}.{% else %}Your browser timezone will be used.{% endif %}</p>
+<button type="button" class="secondary" data-change-schedule-timezone hidden aria-describedby="{{ prefix }}-zone-status">Change timezone</button>
+<p data-schedule-timezone-error class="error" role="alert" tabindex="-1" hidden></p>
+<noscript><p>Enable JavaScript to detect your timezone before setting or changing a schedule. An existing saved timezone is preserved.</p></noscript>
+</fieldset>
+{%- endmacro %}

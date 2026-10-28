@@ -52,7 +52,7 @@ li { margin-block: 10px; }
 <header>
 <p class="eyebrow">COMMON GROUND · PRIVATE HOST WORKING DOCUMENT</p>
 <h1>{{ gathering.title }}</h1>
-<dl><dt>Scheduled date/time</dt><dd>{{ gathering.when_text }}</dd><dt>Location</dt><dd>{{ gathering.location }}</dd></dl>
+<dl><dt>Scheduled date/time</dt><dd>{{ gathering|schedule_label }}</dd><dt>Location</dt><dd>{{ gathering.location }}</dd></dl>
 <h2>AI Analysis #{{ run.id }}</h2>
 <dl>
 <dt>Analysis created</dt><dd>{{ date(run.created_at) }}</dd>

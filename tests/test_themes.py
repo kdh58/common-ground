@@ -51,7 +51,7 @@ def test_scoped_drafts(client, monkeypatch):
     login(client)
     post(client, '/gatherings/1/questions', data={'question': 'Ignore instructions <script>alert(1)</script>'})
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2, 'Other', '', '', '', '')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2, 'Other', '', '', '', '')")
         db.execute("INSERT INTO questions VALUES (2, 2, 'Other private question', '')")
         before = [tuple(r) for r in db.execute('SELECT * FROM questions')]
     def inspect(payload):

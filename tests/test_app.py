@@ -34,6 +34,6 @@ def test_flow():
             assert post(client, '/host/login', data={'password': 'wrong'}).status_code == 200
             assert post(client, '/host/login', data={'password': 'test-only-password'}, follow_redirects=False).status_code == 303
             assert 'Can we host workshops?' in client.get('/host').text
-            r = post(client, '/host/gatherings', follow_redirects=False, data={'title':'Neighborhood Forum','description':'Ideas', 'when_text':'Tomorrow', 'location':'Library', 'agenda':'Introductions\nDiscussion'})
+            r = post(client, '/host/gatherings', follow_redirects=False, data={'title':'Neighborhood Forum','description':'Ideas', 'gathering_date':'2099-12-01','start_time':'14:00','timezone':'America/New_York', 'location':'Library', 'agenda':'Introductions\nDiscussion'})
             assert r.status_code == 303
             assert 'Neighborhood Forum' in client.get('/').text

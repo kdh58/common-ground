@@ -301,7 +301,7 @@ def test_run_actions_authorization_csrf_signed_scope_and_failures(client, monkey
     assert client.post(path, data={'action_key': key, 'csrf_token': 'bad'}).status_code == 403
     assert post(client, path, data={'action_key': key + 'tamper', 'confirmation': 'delete'}).status_code == 400
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'Other','D','W','L','A')")
     assert post(client, f'/host/gatherings/2/analyses/1/{action}', data={'action_key': key, 'confirmation': 'delete'}).status_code == 400
     missing = post(client, path)
     assert missing.status_code == 422 and Disclosures(missing.text).details['analysis-1']

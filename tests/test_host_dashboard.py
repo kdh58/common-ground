@@ -31,18 +31,18 @@ def client(tmp_path, monkeypatch):
 def test_gathering_cards_show_status_time_and_manage_link(client):
     post(client, '/host/gatherings', data={
         'title': 'Cancelled <meeting>', 'description': 'Description',
-        'when_text': 'Tomorrow at 2 PM', 'location': 'Library', 'agenda': 'Welcome',
+        'gathering_date': '2099-12-01', 'start_time': '14:00', 'timezone': 'America/New_York', 'location': 'Library', 'agenda': 'Welcome',
     })
     post(client, '/host/gatherings/2/status', data={'status': 'cancelled'})
     page = client.get('/host').text
-    cards = re.findall(r'<li class="host-gathering">(.*?)</li>', page, re.S)
+    cards = re.findall(r'<li class="gathering-entry">(.*?)</li>', page, re.S)
     assert len(cards) == 2
-    assert 'Cancelled &lt;meeting&gt;' in cards[0]
-    assert 'Tomorrow at 2 PM' in cards[0]
-    assert 'Status: <strong>Cancelled</strong>' in cards[0]
-    assert 'Saturday, November 14' in cards[1]
-    assert 'Status: <strong>Active</strong>' in cards[1]
-    for id, card in zip((2, 1), cards):
+    assert 'Cancelled &lt;meeting&gt;' in cards[1]
+    assert 'Dec 01, 2099' in cards[1] and 'America/New_York' in cards[1]
+    assert 'Status: <strong>Cancelled</strong>' in cards[1]
+    assert 'Saturday, November 14' in cards[0]
+    assert 'Status: <strong>Active</strong>' in cards[0]
+    for id, card in zip((1, 2), cards):
         anchors = [attrs for tag, attrs in Elements(card).elements if tag == 'a']
         assert any(a['href'] == f'/gatherings/{id}' for a in anchors)
         manage = next(a for a in anchors if a['href'] == f'/host/gatherings/{id}')
@@ -56,16 +56,16 @@ def test_gathering_cards_show_status_time_and_manage_link(client):
 
 def test_recent_questions_native_disclosure_and_existing_limit(client):
     page = client.get('/host').text
-    assert '<summary>Recent questions (0)</summary>' in page
+    assert '<h2>Recent questions (0)</h2>' in page
     assert 'No questions yet.' in page
     with main.connection() as db:
         db.executemany('INSERT INTO questions(gathering_id,question,created_at) VALUES (1,?,?)',
                        [(f'Question {i} <tag>', 'timestamp') for i in range(51)])
     page = client.get('/host').text
-    details = re.search(r'<details\b[^>]*>.*?</details>', page, re.S)[0]
+    details = re.search(r'<details class="recent-questions"[^>]*>.*?</details>', page, re.S)[0]
     tag, attrs = Elements(details).elements[0]
     assert tag == 'details' and 'open' not in attrs
-    assert '<summary>Recent questions (50)</summary>' in details
+    assert '<h2>Recent questions (50)</h2>' in details
     assert details.count('<li>') == 50
     assert 'Question 50 &lt;tag&gt;' in details
     assert 'Question 0 &lt;tag&gt;' not in details

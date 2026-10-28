@@ -1,16 +1,6 @@
-{% extends 'base.html' %}{% block main_class %}host-workspace{% endblock %}{% block content %}<div class="topline"><div><p class="eyebrow">ORGANIZER WORKSPACE</p><h1>Host dashboard</h1></div><form action="/host/logout" method="post"><input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><button class="secondary">Sign out</button></form></div><div class="columns"><section class="card"><h2>Create a gathering</h2><form action="/host/gatherings" method="post"><input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><label>Title<input name="title" maxlength="120" required></label><label>Description<textarea name="description" maxlength="1000" required rows="3"></textarea></label><label>When<input name="when_text" maxlength="120" required placeholder="Saturday, November 14 · 2:00 PM"></label><label>Where<input name="location" maxlength="120" required></label><label>Agenda (one item per line)<textarea name="agenda" maxlength="2000" rows="4" required></textarea></label><button>Create gathering</button></form></section><section class="card"><h2>Gatherings</h2>
-<ul class="host-gatherings">
-{% for g in gatherings %}
-<li class="host-gathering">
-<h3><a href="/gatherings/{{ g.id }}">{{ g.title }}</a></h3>
-<p class="gathering-when">{{ g.when_text }}</p>
-<p class="gathering-status">Status: <strong>{{ 'Cancelled' if g.cancelled else 'Active' }}</strong></p>
-<a class="button manage-gathering" href="/host/gatherings/{{ g.id }}" aria-label="Manage gathering: {{ g.title }}">Manage gathering</a>
-</li>
-{% endfor %}
-</ul>
+{% extends 'base.html' %}{% block main_class %}host-workspace{% endblock %}{% block content %}<div class="topline"><div><p class="eyebrow">ORGANIZER WORKSPACE</p><h1>Host dashboard</h1></div><form action="/host/logout" method="post"><input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><button class="secondary">Sign out</button></form></div><details class="card create-gathering"{% if error %} open{% endif %}><summary>Create a gathering</summary>{% if error %}<p class="notice save-error" id="create-feedback" role="alert" tabindex="-1"><strong>Gathering was not created.</strong> {{ error }}</p>{% endif %}<form action="/host/gatherings#create-feedback" method="post"{% if error %} aria-describedby="create-feedback"{% endif %}><input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><label>Title<input name="title" value="{{ submitted.get('title', '') }}" maxlength="120" required></label><label>Description<textarea name="description" maxlength="1000" required rows="3">{{ submitted.get('description', '') }}</textarea></label>{% from 'macros/schedule_fields.html' import schedule_fields %}{{ schedule_fields(submitted, 'create', true) }}<label>Where<input name="location" value="{{ submitted.get('location', '') }}" maxlength="120" required></label><label>Agenda (one item per line)<textarea name="agenda" maxlength="2000" rows="4" required>{{ submitted.get('agenda', '') }}</textarea></label><button>Create gathering</button></form></details>{% from 'macros/gathering_lists.html' import directory %}{{ directory(sections, true) }}
 <details class="recent-questions">
-<summary>Recent questions ({{ questions|length }})</summary>
+<summary>Recent questions and RSVPs</summary><h2>Recent questions ({{ questions|length }})</h2>
 {% if questions %}<ul>{% for q in questions %}<li><strong>{{ q.title }}</strong> — Question #{{ q.question_number }}: {{ q.question }}</li>{% endfor %}</ul>{% else %}<p>No questions yet.</p>{% endif %}
-</details>
-<h2>Recent RSVPs</h2>{% if rsvps %}<ul>{% for r in rsvps %}<li>{{ r.name }} — {{ r.title }}</li>{% endfor %}</ul>{% else %}<p>No RSVPs yet.</p>{% endif %}</section></div>{% endblock %}
+
+<h2>Recent RSVPs</h2>{% if rsvps %}<ul>{% for r in rsvps %}<li>{{ r.name }} — {{ r.title }}</li>{% endfor %}</ul>{% else %}<p>No RSVPs yet.</p>{% endif %}</details>{% endblock %}

@@ -100,3 +100,46 @@
 
 /* Provenance remains visible in collapsed Current Themes rows. */
 .theme-provenance { display: block; margin-top: 6px; color: #43554f; font-size: 1rem; font-weight: 400; }
+
+/* Compact gathering directories, with independent server-rendered pagination. */
+.create-gathering { margin-block: 24px 32px; border-color: #607a6e; }
+.create-gathering form { margin-top: 20px; }
+.gathering-directory { margin-block: 32px; scroll-margin-top: 20px; }
+.gathering-list { list-style: none; margin: 0; padding: 0; }
+.gathering-entry { display: flex; gap: 28px; justify-content: space-between; padding: 22px;
+  background: #fff; border: 1px solid #b8c9bd; border-radius: 12px; margin-block: 12px; overflow-wrap: anywhere; }
+.gathering-entry-description { flex: 1 1 60%; min-width: 0; }
+.gathering-entry-meta { flex: 1 1 32%; min-width: 0; }
+.gathering-entry h3 { margin: 0; font-size: 1.2rem; }
+.gathering-entry p { margin-block: 6px 12px; }
+.gathering-pagination { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between;
+  max-width: none; padding: 8px 0; margin: 0; }
+.gathering-pagination :is(a, span) { display: inline-block; min-height: 44px; padding-block: 10px; }
+.gathering-directory :is(a, .button):focus-visible { outline: 3px solid #193129; outline-offset: 3px; }
+.gathering-pagination [aria-disabled] { color: #52665c; }
+@media (max-width: 700px) {
+  .gathering-entry { flex-direction: column; gap: 8px; padding: 18px; }
+  .gathering-entry .button { display: block; text-align: center; min-height: 44px; }
+}
+
+/* Native multi-open accordions expose counts even when their lists are closed. */
+.gathering-directory > summary { cursor: pointer; min-height: 48px; padding: 12px;
+  border-block: 1px solid #b8c9bd; background: #eaf0e5; border-radius: 8px;
+  scroll-margin-top: 20px; overflow-wrap: anywhere; }
+.gathering-directory > summary h2 { display: inline; font-size: 1.35rem; margin: 0; }
+.gathering-directory .section-count { font-weight: 500; white-space: nowrap; }
+.gathering-directory > summary:focus-visible { outline: 3px solid #193129; outline-offset: 3px; }
+.empty-gatherings { padding: 18px 12px; }
+
+.schedule-fields { border: 1px solid #b8c9bd; border-radius: 9px; margin-block: 20px; padding: 16px; min-width: 0; }
+.schedule-fields legend { font-weight: 700; }
+.schedule-fields select { display: block; width: 100%; min-height: 44px; padding: 10px;
+  border: 1px solid #607a6e; border-radius: 8px; background: #fff; color: #193129; font: inherit; }
+.schedule-fields select:focus-visible { outline: 3px solid #193129; outline-offset: 3px; }
+
+/* Save feedback stays visible at the form heading, including fragment navigation. */
+.save-error { background: #fff0e9; border: 2px solid #ae2828; color: #752020; }
+:is(#details-feedback, #create-feedback) { scroll-margin-top: 24px; }
+
+/* Author button display rules must not override the native hidden state. */
+[data-change-schedule-timezone][hidden], [data-schedule-timezone-error][hidden] { display: none; }

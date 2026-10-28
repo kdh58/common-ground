@@ -46,7 +46,7 @@ def setup_export(client, monkeypatch):
     monkeypatch.setattr(main, 'OLLAMA_MODEL', 'qwen3:export-test')
     post(client, '/gatherings/1/rsvp', data={'name': 'CONFIDENTIAL RSVP NAME'})
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'OTHER GATHERING','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'OTHER GATHERING','D','W','L','A')")
         db.executemany('INSERT INTO questions VALUES (?,?,?,?)', [
             (40, 1, 'FIRST SOURCE', '2026-01-01'),
             (10, 1, 'SECOND SOURCE', '2026-01-02'),

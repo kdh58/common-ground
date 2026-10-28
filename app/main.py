@@ -29,6 +29,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.analysis_export import load_analysis_export, export_timezone
 from app.facilitation import validate_generated_notes
 from app.timestamps import timestamp_display
+from app.scheduling import migrate_schedule, validate_schedule, schedule_label, verify_timezone_database, TimezoneDataError, resolve_timezone, normalize_clock
+from app.gathering_display import ordered_gatherings, description_preview, gathering_state, listing_sections
 from app.questions import NUMBERED_QUESTIONS, load_questions
 from app.themes import ThemeError, suggest_themes, validate_generated_description
 from app import theme_workflow as workflow
@@ -61,6 +63,8 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax"
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 templates = Environment(loader=FileSystemLoader(str(ROOT / "templates")), autoescape=select_autoescape())
 templates.filters["timestamp_display"] = timestamp_display
+templates.filters["description_preview"] = description_preview
+templates.filters["schedule_label"] = schedule_label
 
 @contextmanager
 def connection():
@@ -89,6 +93,7 @@ def init_db():
             question TEXT NOT NULL, created_at TEXT NOT NULL
         );
         """)
+        migrate_schedule(db)
         db.execute("BEGIN")
         db.execute("CREATE TABLE IF NOT EXISTS gathering_status (gathering_id INTEGER PRIMARY KEY REFERENCES gatherings(id), cancelled INTEGER NOT NULL DEFAULT 0 CHECK(cancelled IN (0,1)))")
         db.execute("CREATE TABLE IF NOT EXISTS resources (id INTEGER PRIMARY KEY, gathering_id INTEGER NOT NULL REFERENCES gatherings(id), title TEXT NOT NULL, url TEXT NOT NULL)")
@@ -113,6 +118,7 @@ def init_db():
 
 @app.on_event("startup")
 def on_startup():
+    verify_timezone_database()
     init_db()
 
 def render(name, request, **kwargs):
@@ -132,6 +138,7 @@ def get_gathering(id):
         result['cancelled'] = bool(status and status[0])
         result['items'] = [dict(r) for r in db.execute("SELECT * FROM agenda_items WHERE gathering_id=? ORDER BY position,id", (id,))]
         result['resources'] = [dict(r) for r in db.execute("SELECT * FROM resources WHERE gathering_id=? ORDER BY id", (id,))]
+    result['past'] = gathering_state(dict(result, cancelled=False)) == 'past'
     return result
 
 def validate_text(value, max_chars):
@@ -143,8 +150,8 @@ def validate_text(value, max_chars):
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     with connection() as db:
-        gatherings = [dict(r) for r in db.execute("SELECT * FROM gatherings ORDER BY id DESC")]
-    return render("home.html", request, gatherings=gatherings)
+        gatherings = dashboard_gatherings(db)
+    return render("home.html", request, sections=listing_sections(gatherings, request))
 
 @app.get("/gatherings/{id}", response_class=HTMLResponse)
 def gathering_page(id: int, request: Request, thanks: str = ""):
@@ -156,8 +163,9 @@ def gathering_page(id: int, request: Request, thanks: str = ""):
 
 @app.post("/gatherings/{id}/rsvp")
 def rsvp(id: int, name: str = Form(...)):
-    if get_gathering(id)["cancelled"]:
-        raise HTTPException(409, "This gathering is cancelled")
+    state = gathering_state(get_gathering(id))
+    if state in ("cancelled", "past"):
+        raise HTTPException(409, "This gathering is cancelled" if state == "cancelled" else "This gathering has ended")
     name = validate_text(name, 100)
     with connection() as db:
         db.execute("INSERT INTO rsvps(gathering_id,name,created_at) VALUES (?,?,?)", (id, name, datetime.now(timezone.utc).isoformat()))
@@ -165,8 +173,9 @@ def rsvp(id: int, name: str = Form(...)):
 
 @app.post("/gatherings/{id}/questions")
 def question(id: int, question: str = Form(...)):
-    if get_gathering(id)["cancelled"]:
-        raise HTTPException(409, "This gathering is cancelled")
+    state = gathering_state(get_gathering(id))
+    if state in ("cancelled", "past"):
+        raise HTTPException(409, "This gathering is cancelled" if state == "cancelled" else "This gathering has ended")
     question = validate_text(question, 500)
     with connection() as db:
         db.execute("INSERT INTO questions(gathering_id,question,created_at) VALUES (?,?,?)", (id, question, datetime.now(timezone.utc).isoformat()))
@@ -179,15 +188,30 @@ def require_admin(request):
     if not is_admin(request):
         raise HTTPException(403, "Host login required")
 
+def dashboard_gatherings(db):
+    return ordered_gatherings([dict(r) for r in db.execute("""
+        SELECT g.*, COALESCE(s.cancelled, 0) AS cancelled,
+        (SELECT COUNT(*) FROM questions q WHERE q.gathering_id=g.id) AS question_count,
+        (SELECT COUNT(*) FROM rsvps r WHERE r.gathering_id=g.id) AS rsvp_count
+        FROM gatherings g LEFT JOIN gathering_status s ON s.gathering_id=g.id
+    """)])
+
+
 @app.get("/host", response_class=HTMLResponse)
 def host(request: Request):
     if not is_admin(request):
         return render("login.html", request, error="")
+    return dashboard_page(request)
+
+
+def dashboard_page(request, error="", submitted=None, status_code=200):
     with connection() as db:
-        gatherings = [dict(r) for r in db.execute("SELECT g.*, COALESCE(s.cancelled, 0) AS cancelled FROM gatherings g LEFT JOIN gathering_status s ON s.gathering_id=g.id ORDER BY g.id DESC")]
+        gatherings = dashboard_gatherings(db)
         questions = [dict(r) for r in db.execute(f"SELECT q.*, g.title FROM ({NUMBERED_QUESTIONS}) q JOIN gatherings g ON g.id=q.gathering_id ORDER BY q.created_at DESC,q.id DESC LIMIT 50")]
         rsvps = [dict(r) for r in db.execute("SELECT r.name, g.title FROM rsvps r JOIN gatherings g ON g.id=r.gathering_id ORDER BY r.id DESC LIMIT 50")]
-    return render("host.html", request, gatherings=gatherings, questions=questions, rsvps=rsvps)
+    response = render("host.html", request, sections=listing_sections(gatherings, request, host=True), questions=questions, rsvps=rsvps, error=error, submitted=submitted or {})
+    response.status_code = status_code
+    return response
 
 @app.post("/host/login")
 def login(request: Request, password: str = Form(...)):
@@ -204,14 +228,41 @@ def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/", status_code=303)
 
+def checked_schedule(day, start, end, zone, existing=None):
+    try:
+        first = last = ''
+        # Preserve explicit historical DST choices only for an unchanged schedule.
+        # Newly supplied or changed schedules may never choose an occurrence.
+        if existing:
+            normalized = (day, normalize_clock(start, 'Start time'),
+                          normalize_clock(end, 'End time') if end else '', resolve_timezone(zone)[0])
+            saved = tuple(existing.get(k) or '' for k in ('gathering_date', 'start_time', 'end_time', 'timezone'))
+            if normalized == saved:
+                first = str(existing['start_fold']) if existing.get('start_fold') is not None else ''
+                last = str(existing['end_fold']) if existing.get('end_fold') is not None else ''
+        return validate_schedule(day, start, end, zone, first, last)[0]
+    except TimezoneDataError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except ValueError as exc:
+        message = str(exc)
+        if 'occurs twice' in message or 'does not exist' in message:
+            message = 'This local time is repeated or skipped during a clock change in the scheduled timezone. Choose a different time.'
+        raise HTTPException(400, message) from exc
+
+
 @app.post("/host/gatherings")
 def create_gathering(request: Request, title: str = Form(...), description: str = Form(...),
-                     when_text: str = Form(...), location: str = Form(...), agenda: str = Form(...)):
+                     location: str = Form(...), agenda: str = Form(...),
+                     gathering_date: str = Form(...), start_time: str = Form(...),
+                     end_time: str = Form(''), timezone: str = Form(...)):
     require_admin(request)
     vals = [validate_text(title, 120), validate_text(description, 1000),
-            validate_text(when_text, 120), validate_text(location, 120), validate_text(agenda, 2000)]
+            '', validate_text(location, 120), validate_text(agenda, 2000)]
+    schedule = checked_schedule(gathering_date, start_time, end_time, timezone)
     with connection() as db:
-        cursor = db.execute("INSERT INTO gatherings(title,description,when_text,location,agenda) VALUES (?,?,?,?,?)", vals)
+        cursor = db.execute("""INSERT INTO gatherings(title,description,when_text,location,agenda,
+            gathering_date,start_time,end_time,timezone,start_fold,end_fold) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (*vals, *schedule.values()))
         for position, item in enumerate(vals[4].splitlines()):
             if item.strip():
                 db.execute("INSERT INTO agenda_items(gathering_id,position,title) VALUES (?,?,?)", (cursor.lastrowid, position, item.strip()))
@@ -296,7 +347,11 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
     for run in workspace.get('analysis_runs', []):
         run['action_key'] = URLSafeSerializer(SESSION_SECRET, salt='analysis-actions').dumps(
             [id, run['id'], request.session['csrf_token'], run['action_version']])
-    response = render("host_gathering.html", request, gathering=gathering,
+    details_saved = (request.method == 'GET' and active_tab == 'gathering'
+                     and request.session.get('details_saved') == id)
+    if details_saved:
+        request.session.pop('details_saved')
+    response = render("host_gathering.html", request, gathering=gathering, details_saved=details_saved,
                   questions=questions, rsvps=rsvps, themes=themes, error=error,
                   active_tab=active_tab, form_state=form_state or {},
                   error_section=error_section, error_resource=error_resource,
@@ -476,13 +531,30 @@ def theme_action(id: int, theme_id: int, action: str, request: Request, revision
 
 @app.post("/host/gatherings/{id}/edit")
 def edit_gathering(id: int, request: Request, title: str = Form(...), description: str = Form(...),
-                   when_text: str = Form(...), location: str = Form(...)):
+                   location: str = Form(...), gathering_date: str = Form(''), start_time: str = Form(''),
+                   end_time: str = Form(''), timezone: str = Form('')):
     require_admin(request)
-    get_gathering(id)
-    values = [validate_text(title, 120), validate_text(description, 1000), validate_text(when_text, 120), validate_text(location, 120)]
+    gathering = get_gathering(id)
+    values = [validate_text(title, 120), validate_text(description, 1000), validate_text(location, 120)]
+    # Legacy hosts may edit unrelated details without confirming their schedule.
+    supplied = any((gathering_date, start_time, end_time))
+    schedule = checked_schedule(gathering_date, start_time, end_time, timezone, gathering) if supplied else None
+    if not supplied and timezone:
+        try:
+            resolve_timezone(timezone)
+        except TimezoneDataError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    if not supplied and gathering.get('gathering_date'):
+        raise HTTPException(400, 'A confirmed schedule cannot be cleared. Complete the scheduling fields.')
     with connection() as db:
-        db.execute("UPDATE gatherings SET title=?,description=?,when_text=?,location=? WHERE id=?", (*values, id))
-    return workspace_redirect(id, "gathering")
+        db.execute("UPDATE gatherings SET title=?,description=?,location=? WHERE id=?", (*values, id))
+        if schedule:
+            db.execute("""UPDATE gatherings SET gathering_date=?,start_time=?,end_time=?,timezone=?,
+                start_fold=?,end_fold=? WHERE id=?""", (*schedule.values(), id))
+    request.session['details_saved'] = id
+    return workspace_redirect(id, "gathering", "details-feedback")
 
 
 @app.post("/host/gatherings/{id}/status")
@@ -592,7 +664,8 @@ def export_csv(id: int, kind: str, request: Request):
 def workspace_error(request, context, message, status_code):
     """Retain submitted text on the correct server-rendered view, without writes."""
     form = getattr(request.state, 'workspace_form', {})
-    editable_fields = ('title', 'description', 'when_text', 'location', 'url',
+    editable_fields = ('title', 'description', 'location', 'url',
+                       'gathering_date', 'start_time', 'end_time', 'timezone', 'start_fold', 'end_fold',
                        'shared_concerns', 'different_perspectives', 'discussion_questions')
     state = {key: form[key] for key in editable_fields if isinstance(form.get(key), str)}
     agenda_rows = None
@@ -609,8 +682,10 @@ def workspace_error(request, context, message, status_code):
 
 @app.exception_handler(HTTPException)
 async def host_workspace_http_error(request: Request, exc: HTTPException):
+    if request.url.path == '/host/gatherings' and is_admin(request) and exc.status_code in (400, 503):
+        return dashboard_page(request, str(exc.detail), dict(await request.form()), exc.status_code)
     context = workspace_action(request)
-    if context and is_admin(request) and exc.status_code in (400, 409):
+    if context and is_admin(request) and exc.status_code in (400, 409, 503):
         try:
             return workspace_error(request, context, str(exc.detail), exc.status_code)
         except HTTPException as missing:
@@ -620,6 +695,8 @@ async def host_workspace_http_error(request: Request, exc: HTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def host_workspace_validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path == '/host/gatherings' and is_admin(request):
+        return dashboard_page(request, "Please complete the required fields and check their values.", dict(await request.form()), 422)
     context = workspace_action(request)
     if context and is_admin(request):
         try:

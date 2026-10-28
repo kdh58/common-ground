@@ -558,3 +558,174 @@ this checkpoint supersedes that source-control status. No deployment or live
 schema migration is included. Download exports remain the implemented report
 workflow; no new-tab report feature was added. Semantic AI grounding and browser
 print/accessibility reviews retain the limitations described above.
+
+Gathering directories use compact full-width horizontal entries, stacked on mobile,
+with five entries per server-rendered page. Previous/Next and page counts appear
+above and below a list only when it has more than one page. Each directory is a
+native keyboard-accessible accordion with a total count. Upcoming is open by
+default; Schedule to be confirmed, Past, and host-only Canceled start collapsed.
+Pagination opens the relevant accordion and targets its summary heading. Individual
+sections can be expanded independently, without JavaScript.
+The host creation form and recent activity retain native disclosures and validation.
+Descriptions are escaped plain-text previews; detail pages keep complete descriptions.
+
+Gathering schedules now use nullable `gathering_date`, `start_time`, `end_time`,
+`timezone`, `start_fold`, and `end_fold` columns. New gatherings require a date,
+start time and an IANA timezone detected by the browser and submitted in a hidden
+field. There is no guessed timezone fallback for scheduling.
+The optional end time must be later on the same local date. Times have minute
+precision. Display uses the gathering's local timezone, abbreviation, UTC offset,
+and IANA name; it does not depend on the server or viewer timezone.
+
+At the end instant (or start instant when no end is supplied), participation closes
+and the gathering moves to Past. Ongoing events remain in Upcoming until their end.
+Upcoming sorts by start instant ascending, Past by start descending, with IDs
+breaking ties. Canceled gatherings remain absent from public directories. Direct
+URLs and all associated data remain available; restoring a canceled past event does
+not reopen participation. Accordion counts and independent five-entry pagination
+remain unchanged. Invalid/empty pages default to 1; numeric pages clamp to range.
+`open_section` and explicit section page parameters reopen the relevant accordion.
+
+DST gaps and repeated local times are rejected for new or changed schedules;
+choose a different time. Previously saved explicit occurrence choices remain
+readable and are preserved on edits that leave the entire schedule unchanged.
+New form submissions cannot select or forge an occurrence. An end time on
+a different date is not supported. No missing dates or timezones are inferred.
+
+The original `when_text` is retained verbatim and never updated by create/edit.
+New records have an empty legacy string. Existing schedules, even ISO-like legacy
+text, remain Schedule to be confirmed until a host explicitly supplies the
+structured fields. Hosts may edit unrelated legacy details with the visible date/time fields blank;
+auto-initializing the hidden timezone does not confirm or partially persist a
+legacy schedule. Partial schedules are rejected, and confirmed schedules cannot be
+cleared through Edit Gathering. The edit screen displays the original legacy text.
+
+Migration is additive and repeatable. Before adding missing columns to a populated
+database, it checks SQLite integrity and foreign keys, creates and verifies a
+mode-0600 `pre-scheduling-<UTC timestamp>.db` backup beside the database, and applies
+nullable columns in one transaction. Failure rolls back; rerunning is a no-op.
+There are no backfills or record updates. Application startup applies this migration
+before existing initialization logic. The offline command (requires a writable
+database directory and no enclosing transaction) is:
+
+```sh
+python -m app.scheduling /path/to/common-ground.db
+```
+
+Scheduling migration rehearsal: `backups/common-ground-20261028T161935Z.db` is a
+verified online SQLite backup. Applying the new migration twice to an isolated
+copy preserved all original values across 18 tables, passed integrity and FK
+checks, and left every structured scheduling field NULL. The running database and
+service were not migrated or restarted in this task. Backup files remain ignored
+by Git. Before deploying, take another fresh backup using
+`bash scripts/database.sh backup`; startup also takes its own pre-scheduling backup
+when needed.
+
+Original schedule diagnosis (read-only inspection): Library stores
+`Saturday, November 14 · 2:00 PM`; Neighborhood stores
+`Saturday, November 21st 2:00 PM - 3:30 PM`. Both lack a year and timezone.
+Neither November schedule was changed, and no December demonstrations were created.
+Run all JavaScript tests with `node --test tests/*.cjs`.
+
+Structured scheduling verification: **346 Python tests** and **44 JavaScript tests**
+passed; five existing FastAPI/Starlette deprecation warnings remain.
+`git diff --check` passed. Browser and assistive-technology review remains manual.
+
+Schedule save investigation — October 28, 2026: read-only inspection of the running
+`cg-web-1` container confirmed `DATABASE_PATH=/data/common-ground.db` on volume
+`cg_common_ground_data`. All six scheduling columns and a pre-scheduling backup
+were present; integrity and foreign-key checks passed. The deployed scheduling,
+route and form source matched the workspace before this fix. Neighborhood's
+structured fields were NULL; its POST returned HTTP 400, not a successful save.
+The historical POST body was not logged, so its exact invalid field cannot be
+proven from the access log.
+
+On a disposable online snapshot, the rendered form with the reported date,
+14:00–15:30 and Automatic DST options committed and reloaded correctly. Equivalent
+HTML time values `14:00:00`/`15:30:00` reproduced a 400 because validation accepted
+only HH:MM. Minute-aligned zero-second values (including zero fractional seconds)
+now normalize to HH:MM before validation/storage. Nonzero seconds are rejected,
+never rounded. The same reproduction now commits both representations.
+
+Edit failures prominently say "Details were not saved", preserve submitted fields,
+and target the validation feedback when the browser follows the form's fragment.
+A successful committed edit redirects to a one-time, session-backed confirmation;
+GET reloads read the persisted SQLite values, not a query-string success marker.
+The edit button also links back to the validation error on failed submissions.
+No running service, database schema or stored schedule was changed by this fix;
+no migration or manual SQL repair is needed. Re-enter the intended schedule through
+the host form after the fix is deployed through the normal approved process.
+Verification: 362 Python tests and 45 JavaScript tests pass; five existing Python
+deprecation warnings remain. `git diff --check` passes. Browser/screen-reader review
+remains manual.
+
+IANA timezone validation investigation — October 28, 2026: the active web image
+had system `tzdata 2026e-0+deb13u1`. `ZoneInfo('America/New_York')` and
+`ZoneInfo('Europe/London')` both loaded successfully inside `cg-web-1`. The optional
+Python `tzdata` package was absent, which is normal when system rules are present.
+The exact error was reproduced by surrounding whitespace, including a pasted
+nonbreaking space: validation previously tested the raw input against a global
+zone-name enumeration. Literal unpadded names worked; the historical submitted
+payload was not retained, so its exact contents cannot be established.
+
+Scheduling now strips surrounding Unicode whitespace, resolves names directly with
+`ZoneInfo`, and stores the normalized IANA name. Invalid names, system-local aliases,
+and internal posix/right paths remain rejected. It never substitutes UTC. Missing
+server rules produce a distinct configuration error; create/edit errors retain
+submitted values with HTTP 503 instead of calling the user-entered name invalid.
+The Dockerfile explicitly installs system tzdata and verifies New York/London during
+the build. Startup repeats that check before database initialization.
+
+To test the actual application image without deploying or mounting live data:
+
+```sh
+bash scripts/test-docker-timezones.sh
+# Then run the entire Python suite against that same built image:
+docker run --rm --network none \
+  --mount "type=bind,src=$PWD/tests,dst=/project/tests,readonly" \
+  cg-timezone-test:local python -m pytest -q -p no:cacheprovider
+```
+
+The script builds a separate `cg-timezone-test:local` image from the real Dockerfile.
+Only tests are mounted; application code and installed timezone data come from the
+image. `CG_TEST_IMAGE` can select another test-only image tag. No existing gathering,
+live database, container service or migration is changed by these checks.
+
+Timezone-image verification: all 24 targeted timezone tests and the complete
+386-test Python suite passed against the built image; all 45 JavaScript tests and
+`git diff --check` passed. Five existing Python deprecation warnings remain.
+
+Browser-based scheduling: Create/Edit shows only Date, Start time and optional End
+time as inputs. `app/static/scheduling.js` reads
+`Intl.DateTimeFormat().resolvedOptions().timeZone`, validates it with Intl, and
+fills the hidden timezone before submit. A visible status identifies the scheduled
+zone. Missing/invalid detection blocks scheduling with a clear error; JavaScript
+is needed to initialize an unset zone. No UTC or America/New_York fallback is used.
+The server still independently normalizes/validates IANA names using system tzdata.
+
+Editing preserves a saved zone even when the browser is in another zone. When
+zones differ, **Change timezone** explicitly switches to the browser zone and
+leaves local date/time inputs untouched; review and Save details to persist it.
+A validation rerender retains the chosen timezone. Existing structured schedules
+also remain editable without detection when a saved valid zone is available.
+DST occurrence selectors and technical timezone entry are removed. Repeated or
+nonexistent new local times return a validation error and require a different time;
+existing saved occurrence resolutions are preserved only for unchanged schedules.
+Schema, legacy schedule text, expiration, pagination and security are unchanged.
+
+The browser detection change is independent of the earlier timezone-input issue:
+whitespace normalization, direct ZoneInfo lookup, explicit Docker tzdata checks,
+and distinct missing-server-data errors remain in place and tested. Run all JS
+suites using `node --test tests/*.cjs` (including `tests/test_scheduling.cjs`).
+
+Browser-scheduling verification: all 396 Python tests passed against the rebuilt
+web test image; all 71 JavaScript tests and `git diff --check` passed. The 24
+standalone server-timezone regressions also passed. Five existing Python
+deprecation warnings remain. No live data, service, commit, push or deployment changed.
+
+Reviewed source checkpoint: the final review corrected an unintended resource-edit
+feedback fragment and clarified the legacy schedule help. All 396 Python tests in
+the actual web test image, all 72 JavaScript tests, and `git diff --check` passed.
+This source checkpoint supersedes earlier uncommitted-status notes. Database files,
+backups, credentials and environment files are excluded; publishing source does
+not deploy the application or modify the live database.

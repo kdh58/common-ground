@@ -5,8 +5,8 @@
 <a class="back-to-dashboard" href="/host">← Back to Host dashboard</a>
 <p class="eyebrow">GATHERING WORKSPACE</p>
 <h1>{{ gathering.title }}</h1>
-<p class="gathering-status"><strong class="theme-status">{{ 'Cancelled' if gathering.cancelled else 'Active' }}</strong></p>
-<dl class="workspace-schedule"><div><dt>When</dt><dd>{{ gathering.when_text }}</dd></div><div><dt>Where</dt><dd>{{ gathering.location }}</dd></div></dl>
+<p class="gathering-status"><strong class="theme-status">{{ 'Cancelled' if gathering.cancelled else 'Past Gathering' if gathering.past else 'Active' }}</strong>{% if gathering.cancelled and gathering.past %} · Past Gathering{% endif %}</p>
+<dl class="workspace-schedule"><div><dt>When</dt><dd>{{ gathering|schedule_label }}</dd></div><div><dt>Where</dt><dd>{{ gathering.location }}</dd></div></dl>
 </div>
 <nav class="workspace-tabs" aria-label="Gathering workspace">
 {% for key, label in [('gathering','Gathering'),('participants','Participants'),('themes','Discussion Themes')] %}

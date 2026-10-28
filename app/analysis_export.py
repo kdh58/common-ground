@@ -19,7 +19,7 @@ def export_timezone(requested):
 
 
 def load_analysis_export(db, gathering_id, run_id):
-    gathering = db.execute('SELECT id,title,when_text,location FROM gatherings WHERE id=?', (gathering_id,)).fetchone()
+    gathering = db.execute('SELECT * FROM gatherings WHERE id=?', (gathering_id,)).fetchone()
     if gathering is None:
         raise HTTPException(404, 'Gathering not found')
     run = db.execute('SELECT id,gathering_id,created_at,question_count,status FROM analysis_runs WHERE id=? AND gathering_id=?',

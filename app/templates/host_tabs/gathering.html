@@ -1,10 +1,15 @@
 <section class="card" aria-labelledby="gathering-heading">
 <h2 id="gathering-heading">Gathering details</h2>
-{% if error and error_section == 'edit' %}<p class="notice" id="details-feedback" role="alert">{{ error }}</p>{% endif %}
-<form method="post" action="/host/gatherings/{{ gathering.id }}/edit?tab=gathering"{% if error_section == 'edit' %} aria-describedby="details-feedback"{% endif %}>
+{% if error and error_section == 'edit' %}<p class="notice save-error" id="details-feedback" role="alert" tabindex="-1"><strong>Details were not saved.</strong> {{ error }}</p>{% endif %}
+{% if details_saved %}<p class="notice" id="details-feedback" role="status" tabindex="-1">Gathering details saved.</p>{% endif %}
+<form method="post" action="/host/gatherings/{{ gathering.id }}/edit?tab=gathering#details-feedback"{% if error_section == 'edit' %} aria-describedby="details-feedback"{% endif %}>
 <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
-{% for field, label, limit in [('title','Title',120),('description','Description',1000),('when_text','When',120),('location','Where',120)] %}
+{% for field, label, limit in [('title','Title',120),('description','Description',1000),('location','Where',120)] %}
 <label for="gathering-{{ field }}">{{ label }}</label><textarea id="gathering-{{ field }}" name="{{ field }}" maxlength="{{ limit }}" required>{{ form_state.get(field, gathering[field]) }}</textarea>{% endfor %}
+{% if not gathering.gathering_date %}<p class="notice">Schedule to be confirmed. Original schedule: {{ gathering.when_text }}. No year or timezone has been inferred. Leave the date and time fields blank to preserve this unconfirmed schedule.</p>{% elif gathering.when_text %}<p>Original legacy schedule (retained): {{ gathering.when_text }}</p>{% endif %}
+{% from 'macros/schedule_fields.html' import schedule_fields %}
+{{ schedule_fields(form_state, 'edit', gathering.gathering_date is not none, gathering) }}
+{% if error and error_section == 'edit' %}<p class="error">Details were not saved. <a href="#details-feedback">Review the validation error above</a>, correct the fields, and save again.</p>{% endif %}
 <button>Save details</button>
 </form>
 </section>
@@ -55,7 +60,7 @@
 
 <section class="card workspace-status" id="status" aria-labelledby="gathering-status-heading">
 <h2 id="gathering-status-heading">Gathering Status</h2>
-<p>Cancellation closes RSVPs and question submissions while preserving records, published topics, and host access. Restore to reopen participation.</p>
+<p>Cancellation closes RSVPs and question submissions while preserving records, published topics, and host access. Restoring a gathering reopens participation only if it has not ended.</p>
 {% if error and error_section == 'status' %}<p class="notice" id="status-feedback" role="alert">{{ error }}</p>{% endif %}
 <form method="post" action="/host/gatherings/{{ gathering.id }}/status?tab=gathering"{% if error_section == 'status' %} aria-describedby="status-feedback"{% endif %}>
 <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}"><input type="hidden" name="status" value="{{ 'active' if gathering.cancelled else 'cancelled' }}">

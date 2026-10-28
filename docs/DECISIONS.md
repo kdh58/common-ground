@@ -1109,3 +1109,158 @@ reporting. Earlier uncommitted status statements are historical task records,
 superseded by this checkpoint. Deployment status is unchanged. No new-tab report
 feature, production change, push or deployment is included. Existing semantic
 AI limitations and manual browser print/accessibility checks remain outstanding.
+
+## Structured gathering schedules — October 28, 2026
+
+Use separate local calendar date, start time, optional same-date end time and IANA
+zone columns. Store nullable start/end fold choices for ambiguous DST times. Use
+Python's standard-library `zoneinfo`, round-trip candidates through UTC to reject
+nonexistent times, and require an explicit first/second choice for repeated times.
+Ordinary times store no fold choice. Compare aware UTC instants, including the
+end-after-start constraint. Display local clock values with timezone abbreviation,
+UTC offset and IANA name; never use the server or viewer timezone for scheduling.
+Minute precision and same-date gatherings are intentional current limits.
+
+Preserve `when_text` verbatim as legacy provenance. Do not parse it to derive a
+schedule, even if it looks like ISO; existing records need explicit host scheduling.
+All six new columns are nullable with no database defaults, leaving legacy rows
+unconfirmed. America/New_York is a create-form default for new records only; the server
+requires an explicit valid timezone. Legacy editing may leave all scheduling fields blank to preserve unconfirmed
+status while changing other details. Partial input and clearing confirmed schedules
+are rejected. New creation requires structured scheduling and cannot fall back to
+free text. No questions, RSVPs, analyses, private notes, citations or reports are
+rewritten by this change. Reports show the current structured schedule when present.
+
+Expiration is evaluated at request time: end <= now, or start <= now without an
+end. Completed and canceled gatherings reject new participant writes, retain direct
+URLs, and preserve all records. Restoring a canceled past gathering does not reopen
+participation. Keep the native accordion, total counts and independent server-side
+pagination; no background record mutations or new dependencies are needed.
+
+The additive SQLite migration checks integrity and foreign keys and verifies an
+online backup before changing a populated database. Missing nullable columns are
+added under BEGIN IMMEDIATE in one transaction, with another integrity/FK check
+before commit. Repeated application is a no-op; failure rolls back. Automatic
+backups use exclusive creation, mode 0600 and microsecond UTC names beside the
+SQLite file; the directory must be writable. No schema default assigns a timezone
+to a legacy record. Startup uses the same function as the offline migration command.
+
+Rehearsed twice on an isolated copy of the verified backup
+`backups/common-ground-20261028T161935Z.db`. Every original column value across all
+18 tables was compared after each pass; integrity and foreign-key checks passed,
+and all structured fields remained NULL. The original Library and Neighborhood
+November text was preserved. No running database migration, restart, deployment,
+December fixture creation, commit or push was performed.
+
+Validation: 346 Python tests and 44 JavaScript tests passed; `git diff --check`
+passed. Five existing FastAPI/Starlette deprecation warnings remain. Regression
+coverage includes migration repetition and rollback, legacy preservation, invalid
+dates/times/zones, DST gaps/repeated hours, stored occurrence choices, local display,
+UTC ordering/expiration, closed submissions, CSRF/authentication, create/edit errors,
+and unchanged accordion/pagination behavior. Browser/assistive-technology review
+remains manual.
+
+## Normalize minute-aligned HTML times and confirm committed saves
+
+The active Docker schema already contained structured scheduling fields; the
+Neighborhood save returned 400 and left them NULL. Read-only inspection found no
+volume, path, field-name, migration, transaction or GET-population mismatch. The
+exact historical request payload is unavailable. Before code changes, reproducing
+the rendered form against a disposable snapshot showed that the reported HH:MM
+values commit correctly, while equivalent HH:MM:00 values fail validation. This
+is a confirmed serialization bug, not proof of the historical request's exact
+contents. Accept zero seconds/fractions and normalize to HH:MM; reject rather than
+round nonzero seconds, retaining minute precision and all existing DST rules.
+
+Show conspicuous failure feedback above the form and a reminder by Save details;
+use a fragment target so long forms do not leave errors offscreen. Preserve every
+submitted scheduling field on both 400 and 422 responses. Only set the save flash
+after the SQLite transaction commits; consume it on the redirected gathering GET.
+Never trust a query parameter to assert success. Add no migration or SQL repair:
+the existing schema and commit/GET path work, and no live user record is rewritten.
+
+Regression tests submit actual rendered controls, including empty Automatic option
+values, then independently open SQLite and navigate away/back/reload. They check
+the reported date/time, normalization, Upcoming placement, feedback, error retention,
+non-minute rejection, create/edit workflows, legacy preservation and unchanged
+associated tables. Full suites: 362 Python tests and 45 JavaScript tests passed;
+five existing deprecation warnings remain. `git diff --check` passed. No deployment,
+restart, live migration, live scheduling update, commit or push was performed.
+
+## Resolve normalized IANA names and require timezone data in the image
+
+Read-only diagnosis inside the active web container found system tzdata installed
+(2026e-0+deb13u1); New York and London loaded and validated successfully. Missing
+Python `tzdata` was not an error because `zoneinfo` uses system rules first. The
+reported invalid-IANA message was reproducible with spaces or NBSP around an
+otherwise valid name. The historical request body is unavailable, so do not claim
+that the precise original input or a missing system database has been proved.
+
+Strip surrounding whitespace before validating/storing the IANA name. Use
+`ZoneInfo` directly instead of global `available_timezones()` enumeration. Reject
+invalid names, `localtime`, `posixrules`, and internal posix/right variants; preserve
+case-sensitive IANA spelling. Keep all date/time/end-after-start/DST checks. Do not
+fall back to UTC on lookup failure. Distinguish genuinely missing required server
+data from an invalid user name, preserve form values, and report HTTP 503 when the
+server database is unavailable. Verify reference zones before startup initializes
+any database. Explicitly install tzdata and verify the required zones at image-build
+time so rules are not an incidental base-image dependency.
+
+Use a separate test image built from the actual Dockerfile. Mount tests only at
+/project/tests; never mount host app code over /project/app for this verification.
+Tests cover real winter/summer offsets for New York/London, invalid and padded
+names, create/edit normalization, unchanged database records on failure, and missing
+data failing without UTC substitution or database initialization. This task makes
+no existing-gathering, live-schema, live-container, commit, push or deployment change.
+
+Verification: 24 targeted timezone tests and all 386 Python tests passed against
+the built image; 45 JavaScript tests and `git diff --check` passed. Five existing
+Python deprecation warnings remain. The active service was not rebuilt or restarted.
+
+## Browser-initialized gathering timezone without technical form controls
+
+Create/Edit exposes only local Date, Start time and optional End time inputs.
+A deferred script detects Intl's resolved IANA timezone, validates it with Intl,
+and supplies it in a hidden field. There is no guessed zone fallback. A submit
+listener revalidates the field and blocks/focuses a visible error if unavailable
+or invalid. The server independently validates the submitted zone, so a disabled
+script or forged hidden field cannot bypass scheduling validation. Text output
+uses textContent, not HTML interpolation.
+
+Saved gathering timezones take priority over browser detection. Show the selected
+zone and, when it differs, offer Change timezone to explicitly adopt the browser
+zone. Do not convert or rewrite the local clock inputs; explain that they remain
+unchanged and need review before Save details. Preserve a chosen zone across
+validation rerenders. Use detection only to initialize an unset zone. A timezone
+hidden field initialized on a legacy details-only form must not partially confirm
+the schedule; date/time fields left empty preserve the legacy schedule unchanged.
+
+Reject new or changed repeated/nonexistent local times with a choose-another-time
+error. Remove DST selectors and ignore forged occurrence fields in request bodies.
+Keep the schema and pure stored-schedule reader able to interpret historical folds.
+Reuse those saved choices only when the date, start/end clock values and timezone
+are unchanged; this lets hosts edit unrelated details without shifting an existing
+ambiguous meeting. All new scheduling has unambiguous local instants.
+
+Keep the earlier timezone investigation separate: direct lookup, whitespace
+normalization, system tzdata build/startup checks and explicit configuration errors
+are still required; browser detection does not repair an unavailable server zone
+database. No live database, existing gathering or schema change is part of this
+UI/validation update. Tests cover detection failure, hidden-field validation,
+saved-zone preservation, explicit switching, DST rejection, historical folds,
+persistence/reload and legacy details-only editing.
+
+Verification: 396 Python tests passed in the actual built web test image; 71
+JavaScript tests and `git diff --check` passed. The separate 24-test server-timezone
+suite passed as well. Five existing Python deprecation warnings remain. No live
+schema/record modifications, service restart, commit, push or deployment occurred.
+
+## Reviewed scheduling and directory source checkpoint
+
+Final review removed an unintended gathering-details feedback anchor from the
+resource-edit form and clarified the legacy date/time help. Verification passed
+396 Python tests in the real web test image, 72 JavaScript tests and whitespace
+checks. Publish only source, tests and documentation; retain all SQLite files,
+backups, secrets and environment files outside Git. Earlier uncommitted-status
+notes describe earlier task stages. Source publication does not authorize or
+perform deployment, live migration or live scheduling changes.

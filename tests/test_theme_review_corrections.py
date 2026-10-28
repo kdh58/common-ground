@@ -60,7 +60,7 @@ def test_archived_description_remains_readable_without_enabling_editing(client):
 def seed_nonconsecutive_sources(client):
     login(client)
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'Other','D','W','L','A')")
         db.executemany('INSERT INTO questions VALUES (?,?,?,?)', [
             (40, 1, 'Could evening workshops help access?', '2026-01-01'),
             (10, 1, 'How would evening hours affect staff workload?', '2026-01-02'),

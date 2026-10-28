@@ -1,0 +1,36 @@
+{% macro pagination(section, position) -%}
+{% if section.pages > 1 %}
+<nav class="gathering-pagination" aria-label="{{ section.title }} pagination, {{ position }}">
+{% if section.previous %}<a href="{{ section.previous }}" rel="prev">← Previous</a>{% else %}<span aria-disabled="true">← Previous</span>{% endif %}
+<span>Page {{ section.page }} of {{ section.pages }}</span>
+{% if section.next %}<a href="{{ section.next }}" rel="next">Next →</a>{% else %}<span aria-disabled="true">Next →</span>{% endif %}
+</nav>
+{% endif %}
+{%- endmacro %}
+{% macro directory(sections, host=false) -%}
+{% for section in sections %}
+<details class="gathering-directory" id="{{ section.id }}" aria-labelledby="{{ section.id }}-heading"{% if section.expanded %} open{% endif %}>
+<summary id="{{ section.id }}-heading"><h2>{{ section.title }} <span class="section-count">({{ section.count }})</span></h2></summary>
+{% if section.state == 'unconfirmed' %}<p>These schedules do not yet specify a complete date and timezone. Check the gathering details.</p>{% endif %}
+{{ pagination(section, 'top') }}
+<ul class="gathering-list">
+{% for g in section.entries %}
+<li class="gathering-entry">
+<div class="gathering-entry-description">
+<h3>{% if host %}<a href="/gatherings/{{ g.id }}">{{ g.title }}</a>{% else %}{{ g.title }}{% endif %}</h3>
+<p>Location: {{ g.location }}</p>
+<p>{{ g.description|description_preview }}</p>
+</div>
+<div class="gathering-entry-meta">
+<p class="gathering-when">{{ g|schedule_label }}</p>
+<p>Status: <strong>{{ 'Cancelled' if g.cancelled else 'Past Gathering' if section.state == 'past' else 'Active' }}</strong>{% if section.state == 'unconfirmed' %} · Schedule to be confirmed{% endif %}</p>
+{% if host %}<p>{{ g.question_count }} questions · {{ g.rsvp_count }} RSVPs</p>{% endif %}
+<a class="button" href="{{ '/host' if host else '' }}/gatherings/{{ g.id }}" aria-label="{{ 'Manage gathering' if host else 'Explore gathering' }}: {{ g.title }}">{{ 'Manage gathering' if host else 'Explore gathering' }}</a>
+</div>
+</li>
+{% else %}<li class="empty-gatherings">{{ 'No gatherings awaiting schedule confirmation.' if section.state == 'unconfirmed' else 'No ' ~ section.title|lower ~ '.' }}</li>{% endfor %}
+</ul>
+{{ pagination(section, 'bottom') }}
+</details>
+{% endfor %}
+{%- endmacro %}

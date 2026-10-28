@@ -199,7 +199,7 @@ def test_note_auth_csrf_scope_and_manual_blank_working_content(client):
     missing = post(client, path)
     assert missing.status_code == 422 and 'AI Facilitation Notes' not in missing.text
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'Other','D','W','L','A')")
     assert post(client, '/host/gatherings/2/themes/1/notes', data={'notes_revision': 0}).status_code == 404
     assert rows()[0]['facilitation_notes']['revision'] == 0
     assert save(client, shared_concerns='', different_perspectives='', discussion_questions='').status_code == 200
@@ -229,7 +229,7 @@ def test_route_revalidates_notes_and_rolls_back_new_themes_sources_and_notes(cli
 def test_snapshot_coverage_is_per_run_distinct_and_excludes_later_questions(client, monkeypatch):
     login(client)
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'Other','D','W','L','A')")
         db.executemany('INSERT INTO questions VALUES (?,?,?,?)', [
             (40, 1, 'Access?', '2026-01-01'), (70, 1, 'Staffing?', '2026-01-02'),
             (90, 1, 'Cost?', '2026-01-03'), (1, 2, 'Other gathering?', '2026-01-01'),
@@ -365,7 +365,7 @@ def test_complete_notes_still_reject_truncation_timeout_and_fabricated_sources(m
 def test_snapshot_scope_guard_and_incomplete_snapshot_not_reported_as_coverage(client, monkeypatch):
     prepare(client)
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'Other','D','W','L','A')")
         db.execute("INSERT INTO questions VALUES (90,2,'Other private question','2026-01-01')")
     with pytest.raises(HTTPException):
         with main.connection() as db:

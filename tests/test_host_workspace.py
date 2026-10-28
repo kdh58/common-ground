@@ -39,7 +39,7 @@ def seed(client, monkeypatch):
     login(client)
     post(client, '/gatherings/1/rsvp', data={'name': 'PRIVATE RSVP NAME'})
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'Other','D','W','L','A')")
         db.execute("INSERT INTO rsvps VALUES (8,2,'OTHER PRIVATE NAME','2026-01-01T00:00:00+00:00')")
         db.executemany('INSERT INTO questions VALUES (?,?,?,?)', [
             (5, 2, 'OTHER PRIVATE QUESTION', '2026-01-01'),

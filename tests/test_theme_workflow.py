@@ -98,7 +98,7 @@ def test_manual_lifecycle_reapproval_and_preserved_submissions(client):
 def test_ai_generation_scoped_persistent_append_only(client, monkeypatch):
     login(client)
     post(client, '/gatherings/1/questions', data={'question': 'PRIVATE question'})
-    post(client, '/host/gatherings', data=dict(title='Other', description='D', when_text='W', location='L', agenda='A'))
+    post(client, '/host/gatherings', data=dict(title='Other', description='D', gathering_date='2099-12-01', start_time='14:00', timezone='America/New_York', location='L', agenda='A'))
     post(client, '/gatherings/2/questions', data={'question': 'OTHER private question'})
     create(client, title='Keep published')
     act(client, 'approve')
@@ -224,7 +224,7 @@ def test_authorization_csrf_and_cross_gathering(client, action):
     create(client)
     assert client.post(path, data={'revision': 1}).status_code == 403
     assert client.post(path, data={'revision': 1, 'csrf_token': 'wrong'}).status_code == 403
-    post(client, '/host/gatherings', data=dict(title='Other', description='D', when_text='W', location='L', agenda='A'))
+    post(client, '/host/gatherings', data=dict(title='Other', description='D', gathering_date='2099-12-01', start_time='14:00', timezone='America/New_York', location='L', agenda='A'))
     assert act(client, action, gathering=2, theme=rows()[0], title='Attack', confirmation='delete').status_code == 404
     assert rows()[0]['title'] == 'Manual topic' and len(rows()) == 1
     assert 'Manual topic' not in client.get('/host/gatherings/2?tab=themes').text
@@ -339,7 +339,7 @@ def test_form_keys_are_signed_scoped_and_csrf_protected(client):
     assert create(client, request_key=manual_key + 'tamper').status_code == 400
     assert client.post('/host/gatherings/1/themes/manual', data={'title': 'No CSRF', 'request_key': manual_key}).status_code == 403
     assert post(client, '/host/gatherings/1/themes', data={'request_key': manual_key}).status_code == 400
-    post(client, '/host/gatherings', data=dict(title='Other', description='D', when_text='W', location='L', agenda='A'))
+    post(client, '/host/gatherings', data=dict(title='Other', description='D', gathering_date='2099-12-01', start_time='14:00', timezone='America/New_York', location='L', agenda='A'))
     assert create(client, gathering=2, request_key=manual_key).status_code == 400
     assert rows() == [] and rows(2) == []
 
@@ -347,7 +347,7 @@ def test_form_keys_are_signed_scoped_and_csrf_protected(client):
 def test_generation_batch_is_atomic_and_sources_are_scoped(client, monkeypatch):
     login(client)
     post(client, '/gatherings/1/questions', data={'question': 'Here'})
-    post(client, '/host/gatherings', data=dict(title='Other', description='D', when_text='W', location='L', agenda='A'))
+    post(client, '/host/gatherings', data=dict(title='Other', description='D', gathering_date='2099-12-01', start_time='14:00', timezone='America/New_York', location='L', agenda='A'))
     post(client, '/gatherings/2/questions', data={'question': 'Elsewhere'})
     create(client)
     before = rows()

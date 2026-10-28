@@ -99,7 +99,7 @@ def test_manual_and_unknown_legacy_provenance_is_honest_and_private(client, monk
     assert raw_records() == before
     assert client.get('/host/gatherings/2?tab=themes').status_code == 404
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'Other','D','W','L','A')")
     other = client.get('/host/gatherings/2?tab=themes').text
     assert 'Legacy AI topic' not in other and 'Manual topic' not in other
     post(client, '/host/logout')

@@ -20,7 +20,7 @@ def client(tmp_path, monkeypatch):
 
 def test_local_numbers_everywhere_preserve_identifiers(client, monkeypatch):
     with main.connection() as db:
-        db.execute("INSERT INTO gatherings VALUES (2,'Other','D','W','L','A')")
+        db.execute("INSERT INTO gatherings(id,title,description,when_text,location,agenda) VALUES (2,'Other','D','W','L','A')")
         db.executemany('INSERT INTO questions VALUES (?,?,?,?)', [
             (40, 1, 'First concern', '2026-01-01'),
             (10, 1, 'Second concern', '2026-01-02'),
