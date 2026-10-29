@@ -5,6 +5,16 @@ software development portfolio project for a Resonance Technical Fellowship
 application. It is **not affiliated with or endorsed by Resonance**. Use fictional
 data only. Publishing this source does not deploy a service.
 
+## Video Demonstration
+
+**[Watch the 85-second Common Ground demonstration](https://common-ground.itresidentexpert.com/demo.mp4)**
+
+The video demonstrates the working participant interface, host administration,
+AI-assisted discussion preparation, and human review and publication.
+
+The deployed interactive demonstration is password-protected, while the video
+and source code are publicly accessible.
+
 ## What works today
 
 Participants browse paginated gathering directories and see gathering details,
