@@ -235,6 +235,9 @@ approval. No DigitalOcean deployment is performed by these instructions.
 
 ## Documentation and license
 
+- [Organizer and administrator guide](docs/ORGANIZER_ADMIN_GUIDE.md)
+- [Social impact brief](docs/SOCIAL_IMPACT.md)
+- [Technical architecture and implementation](docs/TECHNICAL_ARCHITECTURE.md)
 - [Reviewer setup and disposable cleanup](docs/REVIEWER_GUIDE.md)
 - [Fictional seed data and guarded apply](docs/DEMO_SEEDING.md)
 - [Existing-installation backup/restore and deployment boundaries](docs/OPERATIONS.md)
