@@ -34,6 +34,7 @@ from app.gathering_display import ordered_gatherings, description_preview, gathe
 from app.questions import NUMBERED_QUESTIONS, load_questions
 from app.themes import ThemeError, suggest_themes, validate_generated_description
 from app import theme_workflow as workflow
+from app import activity
 
 ROOT = Path(__file__).parent
 DB = os.environ.get("DATABASE_PATH", "/tmp/common-ground.db")
@@ -62,6 +63,7 @@ async def protect_request(request: Request):
 
 
 app = FastAPI(dependencies=[Depends(protect_request)], title="Common Ground", docs_url=None, redoc_url=None)
+app.add_middleware(activity.ActivityMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=False)
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 templates = Environment(loader=FileSystemLoader(str(ROOT / "templates")), autoescape=select_autoescape())
@@ -121,6 +123,7 @@ def init_db():
 
 @app.on_event("startup")
 def on_startup():
+    activity.configure()
     verify_timezone_database()
     init_db()
 
@@ -219,6 +222,7 @@ def dashboard_page(request, error="", submitted=None, status_code=200):
 @app.post("/host/login")
 def login(request: Request, password: str = Form(...)):
     if not ADMIN_PASSWORD or not hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode()):
+        request.state.activity_failed = True
         return render("login.html", request, error="Incorrect password")
     request.session.clear()
     request.session["admin"] = True
@@ -266,6 +270,7 @@ def create_gathering(request: Request, title: str = Form(...), description: str 
         cursor = db.execute("""INSERT INTO gatherings(title,description,when_text,location,agenda,
             gathering_date,start_time,end_time,timezone,start_fold,end_fold) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (*vals, *schedule.values()))
+        request.state.activity["gathering_id"] = cursor.lastrowid
         for position, item in enumerate(vals[4].splitlines()):
             if item.strip():
                 db.execute("INSERT INTO agenda_items(gathering_id,position,title) VALUES (?,?,?)", (cursor.lastrowid, position, item.strip()))
@@ -396,9 +401,11 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
         # The model only sees the same gathering-local numbers as the host.
         questions = [{"id": q["question_number"], "question": q["question"]} for q in numbered_questions]
         if not questions:
+            request.state.activity_failed = True
             return host_gathering_page(id, request, "No questions yet. Add participant questions before suggesting themes. Ollama was not called.")
         db.execute('BEGIN IMMEDIATE')
         run_id = workflow.start_analysis(db, id, request_key, len(questions), model=OLLAMA_MODEL)
+        request.state.activity["analysis_run_id"] = run_id
         workflow.record_question_snapshot(db, id, run_id, numbered_questions)
     # Never hold a SQLite write lock during inference. A committed claim blocks retries.
     try:
@@ -426,6 +433,7 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
             workflow.finish_analysis(db, run_id, 'complete')
             workflow.finish_request(db, request_key, 'complete')
     except (ThemeError, HTTPException) as exc:
+        request.state.activity_failed = True
         with connection() as db:
             workflow.finish_request(db, request_key, 'failed')
             workflow.finish_analysis(db, run_id, 'failed')
@@ -433,7 +441,7 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
     return workspace_redirect(id, "themes", "discussion-themes")
 
 
-PRINT_ANALYSIS_SCRIPT = "document.getElementById('print-analysis').addEventListener('click', () => window.print());"
+PRINT_ANALYSIS_SCRIPT = "document.getElementById('print-analysis').addEventListener('click', (event) => { try { fetch(window.location.pathname.replace('view.html', 'print-click'), {method: 'POST', credentials: 'same-origin', body: new URLSearchParams({csrf_token: event.currentTarget.dataset.csrf})}).catch(() => {}); } catch (_) {} window.print(); });"
 PRINT_ANALYSIS_HASH = base64.b64encode(hashlib.sha256(PRINT_ANALYSIS_SCRIPT.encode()).digest()).decode()
 
 
@@ -455,13 +463,13 @@ def analysis_report(id: int, run_id: int, request: Request, *, inline: bool):
         data = load_analysis_export(db, id, run_id)
     zone, fallback = export_timezone(request.query_params.get('timezone'))
     script_policy = f"script-src 'sha256-{PRINT_ANALYSIS_HASH}'" if inline else "script-src 'none'"
-    report_csp = f"default-src 'none'; style-src 'unsafe-inline'; {script_policy}; base-uri 'none'; form-action 'none'"
+    report_csp = f"connect-src 'self'; default-src 'none'; style-src 'unsafe-inline'; {script_policy}; base-uri 'none'; form-action 'none'"
     download_url = f'/host/gatherings/{id}/analyses/{run_id}/export.html'
     if not fallback:
         download_url += '?' + urlencode({'timezone': zone})
     html = templates.get_template('analysis_export.html').render(
         **data, export_zone=zone, timezone_fallback=fallback,
-        inline=inline, print_script=PRINT_ANALYSIS_SCRIPT, report_csp=report_csp, download_url=download_url,
+        inline=inline, print_csrf=request.session.get('csrf_token', ''), print_script=PRINT_ANALYSIS_SCRIPT, report_csp=report_csp, download_url=download_url,
         exported_at=datetime.now(timezone.utc).isoformat(),
         export_time=lambda value: timestamp_display(value, zone, fallback))
     return HTMLResponse(html, headers={
@@ -471,6 +479,14 @@ def analysis_report(id: int, run_id: int, request: Request, *, inline: bool):
         'Content-Security-Policy': report_csp + "; frame-ancestors 'none'",
         'X-Frame-Options': 'DENY',
     })
+
+
+@app.post("/host/gatherings/{id}/analyses/{run_id}/print-click")
+def analysis_print_click(id: int, run_id: int, request: Request):
+    require_admin(request)
+    with connection() as db:
+        load_analysis_export(db, id, run_id)
+    return Response(status_code=204)
 
 
 @app.post("/host/gatherings/{id}/analyses/{run_id}/{action}")
@@ -568,6 +584,7 @@ def set_status(id: int, request: Request, status: str = Form(...)):
     get_gathering(id)
     if status not in ("cancelled", "active"):
         raise HTTPException(400, "Invalid gathering status")
+    request.state.activity_event = "GATHERING_CANCEL" if status == "cancelled" else "GATHERING_REACTIVATE"
     with connection() as db:
         db.execute("INSERT INTO gathering_status VALUES (?,?) ON CONFLICT(gathering_id) DO UPDATE SET cancelled=excluded.cancelled", (id, int(status == "cancelled")))
     return workspace_redirect(id, "gathering", "status")

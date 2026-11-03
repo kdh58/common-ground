@@ -306,7 +306,8 @@ def test_inline_report_toolbar_security_and_download(client, monkeypatch):
     document = Document(response.text)
     meta = next(attrs['content'] for tag, attrs in document.elements if tag == 'meta' and attrs.get('http-equiv') == 'Content-Security-Policy')
     assert f"script-src 'sha256-{digest}'" in meta
-    assert ('button', {'type': 'button', 'id': 'print-analysis'}) in document.elements
+    assert any(tag == 'button' and attrs.get('id') == 'print-analysis'
+               and attrs.get('data-csrf') for tag, attrs in document.elements)
     toolbar = next(attrs for tag, attrs in document.elements if tag == 'nav')
     assert 'screen-only' in toolbar['class'].split()
     assert re.search(r'@media print.*?\.screen-only\s*{\s*display: none;', ''.join(document.styles), re.S)

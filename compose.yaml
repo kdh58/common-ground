@@ -10,6 +10,7 @@ services:
       DEMO_CONTACT_EMAIL: ${DEMO_CONTACT_EMAIL:-kevin@itresidentexpert.com}
       DEMO_CONTACT_PHONE: ${DEMO_CONTACT_PHONE:-+15717584756}
       DATABASE_PATH: /data/common-ground.db
+      ACTIVITY_LOG_PATH: /data/logs/activity.jsonl
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
     volumes:

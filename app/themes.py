@@ -11,6 +11,7 @@ from threading import Lock
 
 import httpx
 
+from app.activity import ollama_request
 from app.facilitation import NOTES_SCHEMA, validate_generated_notes
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ def require_ollama_ready(base_url, model):
         unavailable = False
         try:
             with httpx.Client(timeout=httpx.Timeout(3.0, connect=1.0), trust_env=False) as client:
-                response = client.get(key[0] + '/api/tags')
+                response = ollama_request(client, 'get', key[0] + '/api/tags', model=model)
                 response.raise_for_status()
                 models = response.json()['models']
                 names = {item.get('name', item.get('model')) for item in models}
@@ -210,7 +211,7 @@ def suggest_themes(questions, base_url, model):
     reason = "malformed_json"
     try:
         with httpx.Client(timeout=httpx.Timeout(90.0, connect=5.0), trust_env=False) as client:
-            response = client.post(base_url.rstrip('/') + '/api/chat', json=payload)
+            response = ollama_request(client, 'post', base_url.rstrip('/') + '/api/chat', model=model, json=payload)
             response.raise_for_status()
             body = response.json()
         reason = "invalid_envelope"

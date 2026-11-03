@@ -150,7 +150,7 @@ def test_diagnostics_disabled_by_default(monkeypatch, caplog):
     with pytest.raises(ThemeError):
         suggest_themes([{'id': 1, 'question': 'Private'}],
                        main.OLLAMA_BASE_URL, main.OLLAMA_MODEL)
-    assert not caplog.records
+    assert not [r for r in caplog.records if r.name == "app.themes"]
 
 
 def test_three_questions_request_and_validation(monkeypatch):

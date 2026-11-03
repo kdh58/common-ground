@@ -45,7 +45,7 @@ li { margin-block: 10px; }
 <body>
 {% if inline %}
 <nav class="report-toolbar screen-only" aria-label="Analysis report actions">
-<button type="button" id="print-analysis">Print / Save PDF</button>
+<button type="button" id="print-analysis" data-csrf="{{ print_csrf }}">Print / Save PDF</button>
 <a href="{{ download_url }}" download>Download HTML</a>
 </nav>
 {% endif %}
