@@ -186,6 +186,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 python -m pytest -q -p no:cacheprovider
+npm ci --prefix tests --ignore-scripts
 node --test tests/*.cjs
 bash -n scripts/database.sh scripts/test-docker-timezones.sh
 git diff --check
@@ -203,7 +204,12 @@ docker run --rm --network none --read-only --tmpfs /tmp \
   --mount "type=bind,src=$PWD/tests,dst=/project/tests,readonly" \
   -e PYTHONDONTWRITEBYTECODE=1 \
   cg-timezone-test:local python -m pytest -q -p no:cacheprovider
-# If Node is not installed locally:
+# If Node is not installed locally, install the locked DOM-test dependency once
+# (network access is needed for this test-only installation):
+docker run --rm --user "$(id -u):$(id -g)" -e npm_config_cache=/tmp/npm-cache \
+  --mount "type=bind,src=$PWD/tests,dst=/tests" -w /tests \
+  node:22-alpine npm ci --ignore-scripts
+# Then run all JavaScript/DOM tests without network access:
 docker run --rm --network none --read-only \
   --mount "type=bind,src=$PWD,dst=/project,readonly" -w /project \
   node:22-alpine sh -c 'node --test tests/*.cjs'
@@ -212,6 +218,8 @@ docker run --rm --network none --read-only \
 The timezone script builds a test-only image and runs targeted timezone tests;
 the subsequent command runs the complete Python suite. The Node image must be
 available locally before the network-disabled test run.
+The pinned `tests/package-lock.json` dependencies support DOM tests only and are
+excluded from the application image.
 
 ## Limitations and publication boundaries
 

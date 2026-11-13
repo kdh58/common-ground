@@ -24,7 +24,7 @@
 {% if theme.archived or theme.inactive_draft %}
 <label for="theme-description-{{ theme.id }}">Description ({{ 'analysis inactive; reactivate to edit' if theme.inactive_draft else 'archived; restore to edit' }})</label><textarea id="theme-description-{{ theme.id }}" readonly rows="3">{{ theme.description }}</textarea>
 {% else %}
-<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/edit?tab=themes" method="post" aria-label="Edit theme {{ theme.display_position }}"{% if error_theme == theme.id and error_action == 'edit' %} aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/edit?tab=themes" method="post" data-theme-edit aria-label="Edit theme {{ theme.display_position }}"{% if error_theme == theme.id and error_action == 'edit' %} data-unsaved-edit aria-describedby="theme-feedback-{{ theme.id }}"{% endif %}>
 {{ version(theme) }}
 <label for="theme-title-{{ theme.id }}">Title</label><input id="theme-title-{{ theme.id }}" name="title" maxlength="120" value="{{ submitted.title if error_theme == theme.id and error_action == 'edit' else theme.title }}" required>
 <label for="theme-description-{{ theme.id }}">Description (optional, plain text)</label><textarea id="theme-description-{{ theme.id }}" name="description" maxlength="2000" rows="3">{{ submitted.description if error_theme == theme.id and error_action == 'edit' else theme.description }}</textarea>
@@ -36,7 +36,7 @@
 <section class="facilitation-notes" aria-labelledby="notes-heading-{{ theme.id }}">
 <h4 id="notes-heading-{{ theme.id }}">{{ 'AI Facilitation Notes' if theme.origin == 'ai' else 'Facilitation Notes' }}</h4>
 <p>{% if notes.ai_suggested %}AI suggestions, editable by the host — not findings or community decisions.{% elif theme.origin == 'ai' %}Not generated for this theme. You can enter working notes below.{% else %}Host-written working notes; no AI generation required.{% endif %} Host-only; never published.</p>
-<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/notes?tab=themes" method="post" aria-label="Edit facilitation notes for theme {{ theme.display_position }}"{% if error_theme == theme.id and error_action == 'notes' %} aria-describedby="notes-feedback-{{ theme.id }}"{% endif %}>
+<form action="/host/gatherings/{{ gathering.id }}/themes/{{ theme.id }}/notes?tab=themes" method="post" data-theme-edit aria-label="Edit facilitation notes for theme {{ theme.display_position }}"{% if error_theme == theme.id and error_action == 'notes' %} data-unsaved-edit aria-describedby="notes-feedback-{{ theme.id }}"{% endif %}>
 {{ csrf() }}<input type="hidden" name="notes_revision" value="{{ notes.revision }}">
 <label for="shared-concerns-{{ theme.id }}">Shared concerns</label><textarea id="shared-concerns-{{ theme.id }}" name="shared_concerns" maxlength="2000" rows="3">{{ submitted.get('shared_concerns', '') if error_theme == theme.id and error_action == 'notes' else notes.shared_concerns }}</textarea>
 <label for="different-perspectives-{{ theme.id }}">Different perspectives</label><textarea id="different-perspectives-{{ theme.id }}" name="different_perspectives" maxlength="2000" rows="3">{{ submitted.get('different_perspectives', '') if error_theme == theme.id and error_action == 'notes' else notes.different_perspectives }}</textarea>
@@ -92,13 +92,13 @@
 <p>AI suggestions may be inaccurate. Review them against the original questions. They are not factual conclusions or evidence of community consensus.</p>
 <p><strong>Draft:</strong> private, needs review. <strong>Approved:</strong> reviewed, still private. <strong>Published:</strong> visible as a curated discussion topic. <strong>Archived:</strong> an inactive AI draft, private and reversible.</p>
 <p>Editing any theme saves a private draft and removes its approval and publication. Approve it again, then publish it to make the revised text public. Moving a theme changes the gathering's overall display order only.</p>
-<section aria-labelledby="current-themes-heading">
+<section aria-labelledby="current-themes-heading" data-current-themes>
 <h3 id="current-themes-heading">Current Themes</h3>
 <p>Manual themes and all approved or published themes stay here, regardless of analysis age.</p>
 {% for theme in current_themes %}{{ theme_item(theme) }}{% else %}<p>No current themes yet. Review an AI suggestion below or create a manual theme.</p>{% endfor %}
 </section>
 <h3>Create a theme without AI</h3>
-<form action="/host/gatherings/{{ gathering.id }}/themes/manual?tab=themes" method="post">
+<form action="/host/gatherings/{{ gathering.id }}/themes/manual?tab=themes" method="post" data-theme-edit{% if error and error_action == 'manual' %} data-unsaved-edit{% endif %}>
 {{ csrf() }}<input type="hidden" name="request_key" value="{{ manual_key }}">
 <label for="manual-theme-title">Theme title</label><input id="manual-theme-title" name="title" maxlength="120" required value="{{ form_state.get('title', '') if error_action == 'manual' else '' }}">
 <label for="manual-theme-description">Description (optional, plain text)</label><textarea id="manual-theme-description" name="description" maxlength="2000" rows="3">{{ form_state.get('description', '') if error_action == 'manual' else '' }}</textarea>
@@ -106,16 +106,33 @@
 <button type="submit">Create manual draft</button>
 </form>
 <h3>New AI analysis</h3>
-<form action="/host/gatherings/{{ gathering.id }}/themes?tab=themes" method="post" data-ai-analysis>
+<form action="/host/gatherings/{{ gathering.id }}/themes{{ '/status' if analysis_recovery and analysis_recovery.status == 'pending' else '' }}?tab=themes" method="post" data-ai-analysis
+ data-generation-url="/host/gatherings/{{ gathering.id }}/themes?tab=themes"
+ data-status-url="/host/gatherings/{{ gathering.id }}/themes/status?tab=themes"
+ data-recovery-state="{{ analysis_recovery.status if analysis_recovery else '' }}">
 {{ csrf() }}<input type="hidden" name="request_key" value="{{ generation_key }}">
 
-<button type="submit">{{ 'Retry' if ai_error else 'Suggest Discussion Themes' }}</button>
+<button type="submit">{% if analysis_recovery and analysis_recovery.status == 'pending' %}Refresh analysis status{% elif analysis_recovery and analysis_recovery.status == 'unrecorded' %}Submit original request{% elif ai_error or analysis_recovery %}Retry{% else %}Suggest Discussion Themes{% endif %}</button>
 <div data-ai-loading role="status" aria-live="polite" hidden>
 <span class="ai-spinner" aria-hidden="true"></span>
-<strong>Ollama is analyzing your discussion ideas…</strong>
-<p>Identifying common themes and preparing suggestions. This may take a little while.</p>
+<strong data-ai-loading-label>Ollama is analyzing your discussion ideas…</strong>
+<p data-ai-loading-message>Identifying common themes and preparing suggestions. This may take a little while.</p>
 </div>
-<div{% if ai_error or (error and not error_theme and not error_run and error_action != 'manual') %} class="notice"{% endif %} role="alert" aria-atomic="true" data-ai-result>
+<div{% if ai_error or analysis_recovery or (error and not error_theme and not error_run and error_action != 'manual') %} class="notice"{% endif %} role="alert" aria-atomic="true" data-ai-result>
+{% if analysis_recovery %}
+{% if analysis_recovery.status == 'pending' %}
+<h4>Analysis #{{ analysis_recovery.run_id }} is in progress or may have been interrupted</h4>
+<p>Refresh its status to check for saved results. This does not start another analysis. If it remains in this state, contact the host before starting a new attempt.</p>
+{% elif analysis_recovery.status == 'failed' %}
+<p>Analysis #{{ analysis_recovery.run_id }} failed. Retry explicitly starts a new attempt; the failed attempt remains in history.</p>
+{% elif analysis_recovery.status == 'deleted' %}
+<h4>This analysis was deleted</h4>
+<p>Its saved results are no longer available. Retry explicitly starts a new analysis.</p>
+{% elif analysis_recovery.status == 'unrecorded' %}
+<h4>No analysis receipt is recorded yet</h4>
+<p>You can submit the original request again. Its original key prevents duplicate analysis if the earlier request arrives later.</p>
+{% endif %}
+{% endif %}
 {% if ai_error %}
 {% if ai_error == 'standby' %}
 <h4>AI assistance is currently on standby</h4>
@@ -135,6 +152,14 @@
 </div>
 <p>Uses only this gathering's questions with local Ollama. Creates a new private analysis with draft themes and facilitation notes; existing analyses and themes are unchanged.</p>
 </form>
+<div data-ai-refresh class="notice" hidden>
+<p role="status" aria-live="polite" data-ai-refresh-message></p>
+<p>Unsaved fields and their original revision tokens stay in place until you save or explicitly discard them. Use the existing Save buttons, or select discard before refreshing saved content.</p>
+<a data-ai-completed-link target="_blank" rel="noopener noreferrer" hidden>View completed analysis in a new tab</a>
+<label><input type="checkbox" data-ai-discard> Discard my unsaved theme edits and private notes when refreshing</label>
+<button type="button" data-ai-refresh-saved>Refresh saved content</button>
+</div>
+<div data-analysis-history>
 <h3>AI analysis history</h3>
 <p>Active analyses first, newest first; inactive analyses follow, newest first. Open a run, then a theme, to review its sources and actions.</p>
 {% for run in analysis_runs %}
@@ -142,6 +167,7 @@
 <details class="analysis-run" id="analysis-{{ run.id }}"{% if affected or open_run == run.id or (loop.first and not open_theme and not open_run) %} open{% endif %}>
 <summary>Analysis #{{ run.id }} · {{ date(run.created_at) }}<span class="analysis-meta">{{ run.question_count }} questions · {{ run.generated_theme_count if run.generated_theme_count is not none else run.themes|length }} themes generated · {{ run.status_label }}</span></summary>
 <div class="analysis-content">
+{% if open_run == run.id and run.status == 'complete' %}<p role="status">Analysis #{{ run.id }} is complete. Saved results are shown below.</p>{% endif %}
 {% if run.completed_at %}<p>Finished: {{ date(run.completed_at) }}</p>{% endif %}
 <div class="theme-actions analysis-actions">
 <a class="button" href="/host/gatherings/{{ gathering.id }}/analyses/{{ run.id }}/view.html" data-analysis-export target="_blank" rel="noopener noreferrer" aria-label="View / Print Analysis #{{ run.id }}">View / Print Analysis</a>
@@ -187,5 +213,6 @@
 </details>
 {% endif %}
 {% if not analysis_runs and not legacy_themes %}<p>No AI analyses yet.</p>{% endif %}
+</div>
 </section>
 <script src="/static/theme-workflow.js" defer></script>

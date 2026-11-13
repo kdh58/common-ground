@@ -145,6 +145,18 @@ def finish_request(db, key, status):
     db.execute("UPDATE theme_requests SET status=?,updated_at=? WHERE request_key=?", (status, timestamp(), key))
 
 
+def analysis_receipt(db, key, gathering_id):
+    """Read a generation receipt, including tombstones left by deleted runs."""
+    row = db.execute("""SELECT r.status, a.id AS run_id FROM theme_requests r
+        LEFT JOIN analysis_runs a ON a.request_key=r.request_key AND a.gathering_id=r.gathering_id
+        WHERE r.request_key=? AND r.gathering_id=? AND r.kind='generate'""",
+        (key, gathering_id)).fetchone()
+    if row is None:
+        return None
+    return {'status': row['status'] if row['run_id'] is not None else 'deleted',
+            'run_id': row['run_id']}
+
+
 def insert_theme(db, gathering_id, title, description, origin, question_ids=()):
     now = timestamp()
     position = db.execute("SELECT COALESCE(MAX(position),0)+1 FROM discussion_themes WHERE gathering_id=?", (gathering_id,)).fetchone()[0]

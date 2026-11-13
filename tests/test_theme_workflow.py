@@ -120,7 +120,8 @@ def test_ai_generation_scoped_persistent_append_only(client, monkeypatch):
     assert ai['question_ids'] == [1]
     assert 'AI suggestion' in client.get('/host/gatherings/1?tab=themes').text
     assert 'AI suggestion' not in public(client)
-    assert post(client, '/host/gatherings/1/themes', data={'request_key': request_key}).status_code == 409
+    recovered = post(client, '/host/gatherings/1/themes', data={'request_key': request_key})
+    assert recovered.status_code == 200 and 'analysis=1' in str(recovered.url)
     assert len(seen) == 1 and len(rows()) == 3
     assert post(client, '/host/gatherings/1/themes').status_code == 200
     assert len(rows()) == 4 and rows()[:2] == before
@@ -314,7 +315,8 @@ def test_generation_claim_prevents_concurrent_duplicate(client, monkeypatch):
         future = executor.submit(post, client, '/host/gatherings/1/themes', data={'request_key': request_key})
         try:
             assert started.wait(5)
-            assert post(client, '/host/gatherings/1/themes', data={'request_key': request_key}).status_code == 409
+            duplicate = post(client, '/host/gatherings/1/themes', data={'request_key': request_key})
+            assert duplicate.status_code == 200 and 'in progress or may have been interrupted' in duplicate.text
             # Other edits remain usable while inference is in progress.
             assert create(client, 'Concurrent manual').status_code == 200
         finally:

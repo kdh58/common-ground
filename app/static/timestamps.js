@@ -79,7 +79,11 @@
   }
   if (typeof document !== 'undefined') {
     const zone = selectTimeZone();
-    localizeTimestamps(document, zone);
-    localizeAnalysisExportLinks(document, zone);
+    const enhance = () => {
+      localizeTimestamps(document, zone);
+      localizeAnalysisExportLinks(document, zone);
+    };
+    enhance();
+    document.addEventListener('theme-workspace-updated', enhance);
   }
 })();

@@ -141,6 +141,27 @@ test('view link timezone enhancement preserves native new-tab navigation', () =>
   assert.equal(attrs.rel, 'noopener noreferrer');
 });
 
+test('recovered history retains local timestamps and export timezone enhancement', () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  let refresh;
+  let times = [], links = [];
+  const doc = {
+    baseURI: 'http://localhost:8000/host/gatherings/1?tab=themes',
+    querySelectorAll: selector => selector === 'time[data-local-time]' ? times : links,
+    addEventListener(name, callback) { assert.equal(name, 'theme-workspace-updated'); refresh = callback; }
+  };
+  vm.runInNewContext(fs.readFileSync('app/static/timestamps.js', 'utf8'), {document: doc, URL});
+  const time = element('2026-10-27T17:22:00Z');
+  const link = {href: '/host/gatherings/1/analyses/22/view.html',
+    getAttribute() { return this.href; }, setAttribute(_, value) { this.href = value; }};
+  times = [time];
+  links = [link];
+  refresh();
+  assert.match(time.textContent, /Oct 27, 2026/);
+  assert.ok(new URL(link.href, doc.baseURI).searchParams.get('timezone'));
+});
+
 test('report print control invokes print only on a user click', () => {
   const fs = require('node:fs');
   const vm = require('node:vm');

@@ -15,7 +15,7 @@ logger = logging.getLogger('common_ground.activity')
 logger.propagate = False
 logger.setLevel(logging.INFO)
 FIELDS = {'role', 'gathering_id', 'analysis_run_id', 'correlation_id', 'duration_ms',
-          'http_status', 'model', 'operation', 'prompt_eval_count', 'eval_count', 'reason'}
+          'http_status', 'model', 'operation', 'prompt_eval_count', 'eval_count', 'reason', 'receipt_state'}
 
 
 class PrivateRotatingFileHandler(RotatingFileHandler):
@@ -69,7 +69,8 @@ def action_for(method, path):
         if match:
             suffix = match[1]
             fixed = {'edit': 'GATHERING_EDIT', 'status': 'GATHERING_STATUS', 'agenda': 'AGENDA_SAVE',
-                     'resources': 'RESOURCE_ADD', 'themes': 'AI_ANALYSIS_REQUEST', 'themes/manual': 'THEME_CREATE'}
+                     'resources': 'RESOURCE_ADD', 'themes': 'AI_ANALYSIS_REQUEST', 'themes/manual': 'THEME_CREATE',
+                     'themes/status': 'AI_ANALYSIS_STATUS_REQUEST'}
             if suffix in fixed:
                 return fixed[suffix]
             match = re.fullmatch(r'(themes|analyses|resources)/\d+/(edit|remove|notes|approve|publish|unpublish|archive|restore|delete|up|down|inactive|reactivate)', suffix)
@@ -121,7 +122,7 @@ class ActivityMiddleware:
             state = scope['state']
             event = state.get('activity_event', action)
             failed = code >= 400 or state.get('activity_failed', False)
-            if action == 'AI_ANALYSIS_REQUEST':
+            if action == 'AI_ANALYSIS_REQUEST' and event == action:
                 event = 'AI_ANALYSIS_FAILED' if failed else 'AI_ANALYSIS_COMPLETE'
             emit(event, 'failed' if failed else 'succeeded', http_status=code,
                  duration_ms=round((time.monotonic() - start) * 1000, 3))

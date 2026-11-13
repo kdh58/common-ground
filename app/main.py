@@ -324,7 +324,8 @@ def workspace_redirect(id, tab, section='', theme=None):
 
 
 def host_gathering_page(id, request, error="", error_theme=None, error_action="", submitted=None, status_code=200,
-                        tab=None, form_state=None, error_section='', error_resource=None, agenda_rows=None, error_run=None, ai_error=""):
+                        tab=None, form_state=None, error_section='', error_resource=None, agenda_rows=None, error_run=None, ai_error="",
+                        analysis_recovery=None):
     require_admin(request)
     gathering = get_gathering(id)
     action = workspace_action(request)
@@ -347,7 +348,7 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
     except ValueError:
         open_theme = None
     try:
-        open_run = error_run or int(request.query_params.get('analysis', '0'))
+        open_run = error_run or (analysis_recovery or {}).get('run_id') or int(request.query_params.get('analysis', '0'))
     except ValueError:
         open_run = None
     # render initializes CSRF for a host's first page; normally login already did so.
@@ -362,6 +363,7 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
     response = render("host_gathering.html", request, gathering=gathering, details_saved=details_saved,
                   questions=questions, rsvps=rsvps, themes=themes, error=error,
                   ai_error=ai_error, demo_contact_name=DEMO_CONTACT_NAME,
+                  analysis_recovery=analysis_recovery,
                   demo_contact_email=DEMO_CONTACT_EMAIL, demo_contact_phone=DEMO_CONTACT_PHONE,
                   demo_contact_phone_display="(571) 758-4756" if DEMO_CONTACT_PHONE == "+15717584756" else DEMO_CONTACT_PHONE,
                   active_tab=active_tab, form_state=form_state or {},
@@ -371,7 +373,9 @@ def host_gathering_page(id, request, error="", error_theme=None, error_action=""
                   open_theme=open_theme, error_theme=error_theme, error_action=error_action,
                   open_run=open_run, error_run=error_run,
                   submitted=submitted, **workspace,
-                  generation_key=theme_form_key(request, id, 'generate'),
+                  generation_key=(analysis_recovery['request_key'] if analysis_recovery and
+                                  analysis_recovery['status'] in ('pending', 'unrecorded') else
+                                  theme_form_key(request, id, 'generate')),
                   manual_key=theme_form_key(request, id, 'manual'))
     response.status_code = status_code
     return response
@@ -390,23 +394,69 @@ def host_gathering(id: int, request: Request):
     return host_gathering_page(id, request)
 
 
+def analysis_redirect(id, run_id):
+    return RedirectResponse(f'/host/gatherings/{id}?tab=themes&analysis={run_id}#analysis-{run_id}', 303)
+
+
+def analysis_recovery_response(id, request, request_key, receipt, ai_error=""):
+    if receipt and receipt['status'] == 'complete':
+        return analysis_redirect(id, receipt['run_id'])
+    recovery = {**(receipt or {'status': 'unrecorded', 'run_id': None}), 'request_key': request_key}
+    return host_gathering_page(id, request, tab='themes',
+                               analysis_recovery=recovery, ai_error=ai_error)
+
+
+def record_analysis_recovery(request, receipt):
+    state = receipt['status'] if receipt else 'unrecorded'
+    request.state.activity_event = {
+        'complete': 'AI_ANALYSIS_RECOVERED',
+        'pending': 'AI_ANALYSIS_PENDING_STATUS',
+        'failed': 'AI_ANALYSIS_FAILED_RECOVERY',
+        'deleted': 'AI_ANALYSIS_DELETED_RECOVERY',
+        'unrecorded': 'AI_ANALYSIS_UNRECORDED_STATUS',
+    }[state]
+    request.state.activity['receipt_state'] = state
+    if receipt and receipt['run_id'] is not None:
+        request.state.activity['analysis_run_id'] = receipt['run_id']
+
+
+@app.post("/host/gatherings/{id}/themes/status")
+def analysis_request_status(id: int, request: Request, request_key: str = Form(...)):
+    """Reconcile an uncertain outcome without claiming a key or starting inference."""
+    require_admin(request)
+    get_gathering(id)
+    validate_theme_key(request, id, 'generate', request_key)
+    with connection() as db:
+        receipt = workflow.analysis_receipt(db, request_key, id)
+    record_analysis_recovery(request, receipt)
+    return analysis_recovery_response(id, request, request_key, receipt)
+
+
 @app.post("/host/gatherings/{id}/themes")
 def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
     require_admin(request)
     get_gathering(id)
     validate_theme_key(request, id, 'generate', request_key)
     with connection() as db:
-        numbered_questions = load_questions(db, id)
-        question_id_by_number = {q['question_number']: q['id'] for q in numbered_questions}
-        # The model only sees the same gathering-local numbers as the host.
-        questions = [{"id": q["question_number"], "question": q["question"]} for q in numbered_questions]
-        if not questions:
-            request.state.activity_failed = True
-            return host_gathering_page(id, request, "No questions yet. Add participant questions before suggesting themes. Ollama was not called.")
+        # Serialize receipt lookup with claiming: simultaneous submissions must
+        # observe the first committed claim, rather than both starting inference.
         db.execute('BEGIN IMMEDIATE')
-        run_id = workflow.start_analysis(db, id, request_key, len(questions), model=OLLAMA_MODEL)
-        request.state.activity["analysis_run_id"] = run_id
-        workflow.record_question_snapshot(db, id, run_id, numbered_questions)
+        receipt = workflow.analysis_receipt(db, request_key, id)
+        if receipt is None:
+            numbered_questions = load_questions(db, id)
+            question_id_by_number = {q['question_number']: q['id'] for q in numbered_questions}
+            # The model only sees the same gathering-local numbers as the host.
+            questions = [{"id": q["question_number"], "question": q["question"]} for q in numbered_questions]
+            if questions:
+                run_id = workflow.start_analysis(db, id, request_key, len(questions), model=OLLAMA_MODEL)
+                request.state.activity["analysis_run_id"] = run_id
+                workflow.record_question_snapshot(db, id, run_id, numbered_questions)
+    if receipt is not None:
+        record_analysis_recovery(request, receipt)
+        return analysis_recovery_response(id, request, request_key, receipt)
+    if not questions:
+        request.state.activity_failed = True
+        return host_gathering_page(id, request, "No questions yet. Add participant questions before suggesting themes. Ollama was not called.")
     # Never hold a SQLite write lock during inference. A committed claim blocks retries.
     try:
         suggestions = suggest_themes(questions, OLLAMA_BASE_URL, OLLAMA_MODEL)
@@ -437,8 +487,9 @@ def gathering_themes(id: int, request: Request, request_key: str = Form(...)):
         with connection() as db:
             workflow.finish_request(db, request_key, 'failed')
             workflow.finish_analysis(db, run_id, 'failed')
-        return host_gathering_page(id, request, ai_error=getattr(exc, "kind", "processing"))
-    return workspace_redirect(id, "themes", "discussion-themes")
+            receipt = workflow.analysis_receipt(db, request_key, id)
+        return analysis_recovery_response(id, request, request_key, receipt, ai_error=getattr(exc, "kind", "processing"))
+    return analysis_redirect(id, run_id)
 
 
 PRINT_ANALYSIS_SCRIPT = "document.getElementById('print-analysis').addEventListener('click', (event) => { try { fetch(window.location.pathname.replace('view.html', 'print-click'), {method: 'POST', credentials: 'same-origin', body: new URLSearchParams({csrf_token: event.currentTarget.dataset.csrf})}).catch(() => {}); } catch (_) {} window.print(); });"

@@ -46,6 +46,63 @@ startup migration also creates a verified backup beside populated legacy databas
 before adding missing scheduling columns; it does not replace an operator backup.
 Other additive startup schema changes still require pre-update backup planning.
 
+## Processing and interrupted AI analyses
+
+An analysis commits its `pending` receipt, run and question snapshot before calling
+Ollama, and releases the SQLite write lock during inference. Only the original
+application request saves the generated themes and commits the terminal status.
+If that process is killed, the pending record survives, even if Ollama finishes on
+the separate inference machine. There is no background job, heartbeat, lease,
+resume mechanism or automatic stale-request cleanup. A pending timestamp alone
+cannot distinguish a slow request from an interrupted one.
+
+Use the host's **Refresh analysis status** control to reconcile the original
+receipt without starting inference. Correlate its analysis run ID with the original
+request's activity events, application process/container lifetime and, where
+available, Ollama's current processing state. A live original application request
+may still finish; an Ollama response alone does not prove themes were saved.
+`AI_ANALYSIS_COMPLETE` and the committed run state provide persistence evidence.
+Missing terminal logs alone are inconclusive because logging is best effort.
+Confirm that the original application request/process has ended before treating
+its pending run as interrupted. A timeout also does not prove that remote Ollama
+has stopped computing.
+
+Never automatically regenerate a pending request or clear its receipt. Otherwise
+an original request that is merely delayed could still save results alongside a
+second inference. Same-key replay remains protected, including after run deletion.
+If interruption is confirmed, retain the old run, snapshot and receipt for review.
+Optionally mark that run **Make inactive** in the host UI; this is not cancellation
+and does not stop an active inference. Start a separate analysis only as an
+explicit host decision using a freshly rendered generation form. Existing themes,
+private notes and participant questions must be retained. Do not delete analysis
+history, reset statuses with ad hoc SQL, remove receipts, or restore a backup just
+to make a pending request retryable. If the original process may still finish,
+continue checking status instead of starting another attempt.
+
+Before an authorized container replacement:
+
+1. Identify the exact Compose project, existing named data volume, configuration
+   and rollback image. Preserve the existing session secret (at least 24 characters)
+   so recovery forms remain valid. Take and verify an online backup as above.
+2. Coordinate a maintenance window with all hosts. Prevent new generation POSTs
+   at the existing ingress, or otherwise ensure hosts cannot submit them during
+   the drain. Keep status checks available. Do not create a new public inference
+   endpoint; ingress changes require their own operational authorization.
+3. Let active original application requests finish and confirm their terminal run
+   states. Check every nonterminal run against process/log evidence; historical
+   interrupted pending runs will not become terminal merely by waiting. Do not
+   replace a container while it still owns an active analysis request. Docker's
+   stop timeout alone is not an application drain guarantee.
+4. Build and validate the intended image separately, then replace only the
+   identified application container while retaining its data volume and settings.
+   Never remove the volume. Reload host tabs to use the matching scripts/templates;
+   first save unsaved edits. Verify health, existing history and recovery of a
+   known completed analysis without requesting new inference, then reopen access.
+
+This is a drain checklist, not an executable production proxy runbook. Production
+ingress details are not in this repository. Replacement can interrupt HTTP
+connections; saved results remain recoverable by their original valid receipt.
+
 ## Before any public service deployment
 
 Source publication is separate from deployment. The prototype is not ready for an
@@ -103,6 +160,16 @@ private notes save, theme edit/approve/publish/unpublish/archive/restore/delete 
 ordering, analysis inactive/reactivate/delete, CSV export, analysis view/export,
 and AI analysis request/complete/failed. Validation, authorization, model errors
 and login failures produce failed outcomes, including errors rendered as HTTP 200.
+
+Receipt reconciliation has separate terminal events: `AI_ANALYSIS_RECOVERED`
+(complete), `AI_ANALYSIS_PENDING_STATUS`, `AI_ANALYSIS_FAILED_RECOVERY`,
+`AI_ANALYSIS_DELETED_RECOVERY`, and `AI_ANALYSIS_UNRECORDED_STATUS`. They include
+`gathering_id`, `receipt_state` and `analysis_run_id` when a run still exists.
+Status checks start with `AI_ANALYSIS_STATUS_REQUEST`; generation-endpoint replays
+start with `AI_ANALYSIS_REQUEST` and end with the appropriate recovery event.
+Here `succeeded` means that reconciliation succeeded, not that a failed/pending
+analysis completed. Recovery never emits `AI_ANALYSIS_COMPLETE` or model events.
+Raw signed request keys and participant/generated content are never logged.
 
 `OLLAMA_REQUEST_SUBMITTED` records a local send attempt. `OLLAMA_HTTP_RESPONSE`
 means an HTTP response was observed, with its status; connection failures and

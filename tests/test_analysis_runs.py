@@ -185,7 +185,8 @@ def test_run_delete_requires_confirmation_and_retains_request_receipt(client, mo
         assert db.execute('SELECT count(*) FROM rsvps').fetchone()[0] == 1
         assert db.execute('SELECT count(*) FROM theme_requests').fetchone()[0] == 1
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
-    assert generate(client, request_key=receipt).status_code == 409
+    recovered = generate(client, request_key=receipt)
+    assert recovered.status_code == 200 and 'This analysis was deleted' in recovered.text
     assert len(calls) == 1
 
 

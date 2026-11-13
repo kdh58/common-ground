@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "DOM regression tests; no browser dependencies are shipped in the application",
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}
